@@ -1,3 +1,5 @@
+"use client"
+  
 import { useState } from 'react'
 import type { Profile, Weekly, Measure } from '@/lib/types'
 
