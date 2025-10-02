@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState } from 'react'
 import WeeklyPlanner from '@/components/WeeklyPlannerSection'
 import MenuCards from '@/components/MenuCardsSection'
