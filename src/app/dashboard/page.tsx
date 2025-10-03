@@ -1,6 +1,16 @@
-'use client' 
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+
+import N8NGenerate, {
+  BasicInformation,
+  HouseholdSetup,
+  CookingPreferences,
+  DietaryProfile,
+  ShoppingPreferences,
+  ClientPayload,
+} from '../../components/N8NGenerate';
+
 
 /**
  * LocalStorage keys
@@ -499,6 +509,67 @@ export default function DashboardPage() {
     setBeverageRecipe(recipe)
   }
 
+  // =======================
+  // PART 2: Build client payload for n8n
+  // =======================
+  const basicInformation: BasicInformation = {
+    firstName: (profile as any)?.firstName ?? '',
+    lastName: (profile as any)?.lastName ?? '',
+    email: (profile as any)?.email ?? '',
+    accountAddress: {
+      street: (profile as any)?.address?.street ?? '',
+      city: (profile as any)?.address?.city ?? '',
+      state: (profile as any)?.address?.state ?? '',
+      zipcode: (profile as any)?.address?.zipcode ?? '',
+    },
+  };
+
+  const householdSetup: HouseholdSetup = {
+    adults: (profile as any)?.household?.adults ?? 0,
+    teens: (profile as any)?.household?.teens ?? 0,
+    children: (profile as any)?.household?.children ?? 0,
+    toddlersInfants: (profile as any)?.household?.toddlers ?? 0,
+    portionsPerDinner: profile.portionDefault ?? 1,
+    dinnersPerWeek: weekly.dinners ?? undefined,
+  };
+
+  const cookingPreferences: CookingPreferences = {
+    cookingSkill: (profile as any)?.cooking?.skill ?? 'Beginner',
+    cookingTimePreference: (profile as any)?.cooking?.timePreference ?? '30 min',
+    equipment: (profile as any)?.cooking?.equipment ?? [],
+  };
+
+  const dietaryProfile: DietaryProfile = {
+    allergiesRestrictions: (profile as any)?.dietary?.allergies ?? [],
+    dislikesAvoidList: (profile as any)?.dietary?.dislikes ?? [],
+    dietaryPrograms: (profile as any)?.dietary?.programs ?? [],
+    notes: (profile as any)?.dietary?.notes ?? undefined,
+  };
+
+  const shoppingPreferences: ShoppingPreferences = {
+    storesNearMe: (profile as any)?.shopping?.storesNearMe ?? [],
+    preferredGroceryStore: profile.store ?? '',
+    preferOrganic: (profile as any)?.shopping?.preferOrganic ?? 'I dont care',
+    preferNationalBrands: (profile as any)?.shopping?.preferNationalBrands ?? 'No preference',
+  };
+
+  const client: ClientPayload = {
+    basicInformation,
+    householdSetup,
+    cookingPreferences,
+    dietaryProfile,
+    shoppingPreferences,
+    extra: {
+      weeklyMood: weekly.mood,
+      weeklyExtras: weekly.extras,
+      weeklyOnHandText: weekly.onHandText,
+      pantrySnapshot: pantry,
+      barSnapshot: bar,
+      currentMenusCount: menus?.length ?? 0,
+    },
+  };
+  // =======================
+
   const bgStyle = {
     backgroundImage: 'url(/hero.jpg)',
     backgroundSize: 'cover',
@@ -507,7 +578,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen" style={bgStyle}>
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-white/80 backdrop-blur-sm">
         <header className="h-16 border-b bg-white/90 sticky top-0 z-50">
           <div className="max-w-7xl mx-auto h-full px-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -621,10 +692,17 @@ export default function DashboardPage() {
                 <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.extras} onChange={(e) => setWeekly(w => ({ ...w, extras: e.target.value }))} />
               </div>
 
-              <div className="mt-6 flex justify-end">
+              <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-end">
                 <button className="px-5 py-2 rounded bg-green-600 text-white" onClick={generateMenus}>
-                  Generate Menu
+                  Generate Menu (Sample)
                 </button>
+
+                {/* =======================
+                    PART 3: n8n Generate (button + results)
+                   ======================= */}
+                <div>
+                  <N8NGenerate client={client} />
+                </div>
               </div>
             </div>
 
