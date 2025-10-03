@@ -39,7 +39,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Always return JSON
     return NextResponse.json({ correlationId, status: "accepted" }, { status: 202 });
   } catch (e: any) {
     console.error("[trigger] crash", e);
