@@ -11,7 +11,6 @@ import N8NGenerate, {
   ClientPayload,
 } from '../../components/N8NGenerate';
 
-
 /**
  * LocalStorage keys
  */
@@ -24,6 +23,12 @@ const LS = {
   CART_EXTRA: 'ic_cart_extra',
   PANTRY: 'ic_pantry',
   BAR: 'ic_bar',
+  // signup blobs saved by the wizard
+  IC_BASIC: 'ic_basic',
+  IC_HOUSE: 'ic_house',
+  IC_COOK: 'ic_cook',
+  IC_DIET: 'ic_diet',
+  IC_SHOP: 'ic_shop',
 }
 
 /**
@@ -310,6 +315,7 @@ export default function DashboardPage() {
   const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined)
   const [barPreview, setBarPreview] = useState<string | undefined>(undefined)
 
+  // hydrate from storage (existing app state)
   useEffect(() => {
     const p = load<Profile>(LS.PROFILE, defaultProfile)
     const w = load<Weekly>(LS.WEEKLY, defaultWeekly)
@@ -325,6 +331,19 @@ export default function DashboardPage() {
     setCartExtra(ce)
     setPantry(pa.length ? pa : defaultPantry)
     setBar(autoFadePerishables(ba.length ? ba : defaultBar))
+  }, [])
+
+  // NEW: hydrate portions/dinners/store from signup blobs if present
+  useEffect(() => {
+    const h = load<HouseholdSetup | null>(LS.IC_HOUSE, null)
+    if (h) {
+      setProfile(p => ({ ...p, portionDefault: h.portionsPerDinner || p.portionDefault }))
+      if (h.dinnersPerWeek) setWeekly(w => ({ ...w, dinners: h.dinnersPerWeek! }))
+    }
+    const s = load<ShoppingPreferences | null>(LS.IC_SHOP, null)
+    if (s?.preferredGroceryStore) {
+      setProfile(p => ({ ...p, store: s.preferredGroceryStore || p.store }))
+    }
   }, [])
 
   useEffect(() => save(LS.PROFILE, profile), [profile])
@@ -512,46 +531,55 @@ export default function DashboardPage() {
   // =======================
   // PART 2: Build client payload for n8n
   // =======================
-  const basicInformation: BasicInformation = {
-    firstName: (profile as any)?.firstName ?? '',
-    lastName: (profile as any)?.lastName ?? '',
-    email: (profile as any)?.email ?? '',
-    accountAddress: {
-      street: (profile as any)?.address?.street ?? '',
-      city: (profile as any)?.address?.city ?? '',
-      state: (profile as any)?.address?.state ?? '',
-      zipcode: (profile as any)?.address?.zipcode ?? '',
-    },
-  };
 
-  const householdSetup: HouseholdSetup = {
-    adults: (profile as any)?.household?.adults ?? 0,
-    teens: (profile as any)?.household?.teens ?? 0,
-    children: (profile as any)?.household?.children ?? 0,
-    toddlersInfants: (profile as any)?.household?.toddlers ?? 0,
+  // read signup blobs if available
+  const ic_basic = load<BasicInformation | null>(LS.IC_BASIC, null)
+  const ic_house = load<HouseholdSetup | null>(LS.IC_HOUSE, null)
+  const ic_cook  = load<CookingPreferences | null>(LS.IC_COOK, null)
+  const ic_diet  = load<DietaryProfile | null>(LS.IC_DIET, null)
+  const ic_shop  = load<ShoppingPreferences | null>(LS.IC_SHOP, null)
+
+  // fallbacks if blobs are missing
+  const basicInformation: BasicInformation = ic_basic ?? {
+    firstName: '',
+    lastName: '',
+    email: '',
+    accountAddress: {
+      street: '',
+      city: '',
+      state: '',
+      zipcode: '',
+    },
+  }
+
+  const householdSetup: HouseholdSetup = ic_house ?? {
+    adults: 0,
+    teens: 0,
+    children: 0,
+    toddlersInfants: 0,
     portionsPerDinner: profile.portionDefault ?? 1,
     dinnersPerWeek: weekly.dinners ?? undefined,
-  };
+  }
 
-  const cookingPreferences: CookingPreferences = {
-    cookingSkill: (profile as any)?.cooking?.skill ?? 'Beginner',
-    cookingTimePreference: (profile as any)?.cooking?.timePreference ?? '30 min',
-    equipment: (profile as any)?.cooking?.equipment ?? [],
-  };
+  const cookingPreferences: CookingPreferences = ic_cook ?? {
+    cookingSkill: 'Beginner',
+    cookingTimePreference: '30 min',
+    equipment: [],
+  }
 
-  const dietaryProfile: DietaryProfile = {
-    allergiesRestrictions: (profile as any)?.dietary?.allergies ?? [],
-    dislikesAvoidList: (profile as any)?.dietary?.dislikes ?? [],
-    dietaryPrograms: (profile as any)?.dietary?.programs ?? [],
-    notes: (profile as any)?.dietary?.notes ?? undefined,
-  };
+  const dietaryProfile: DietaryProfile = ic_diet ?? {
+    allergiesRestrictions: [],
+    dislikesAvoidList: [],
+    dietaryPrograms: [],
+    notes: undefined,
+  }
 
-  const shoppingPreferences: ShoppingPreferences = {
-    storesNearMe: (profile as any)?.shopping?.storesNearMe ?? [],
+  const shoppingPreferences: ShoppingPreferences = ic_shop ?? {
+    storesNearMe: [],
     preferredGroceryStore: profile.store ?? '',
-    preferOrganic: (profile as any)?.shopping?.preferOrganic ?? 'I dont care',
-    preferNationalBrands: (profile as any)?.shopping?.preferNationalBrands ?? 'No preference',
-  };
+    preferOrganic: 'I dont care',
+    preferNationalBrands: 'No preference',
+  }
 
   const client: ClientPayload = {
     basicInformation,
@@ -567,7 +595,7 @@ export default function DashboardPage() {
       barSnapshot: bar,
       currentMenusCount: menus?.length ?? 0,
     },
-  };
+  }
   // =======================
 
   const bgStyle = {
