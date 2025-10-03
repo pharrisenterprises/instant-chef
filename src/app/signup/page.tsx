@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 const equipmentOptions = [
@@ -16,6 +16,78 @@ const equipmentOptions = [
   'Vitamix or High Speed Blender (Ninja)',
   'Fryer',
 ]
+
+/** small helper to turn "a, b, c" into ["a","b","c"] (trimmed, no empties) */
+function csvToArray(s: string): string[] {
+  return (s || '')
+    .split(',')
+    .map(x => x.trim())
+    .filter(Boolean)
+}
+
+/** save all wizard info for the dashboard/n8n payload builder */
+function persistSignupToLocalStorage(profile: any) {
+  // ---- basicInformation
+  const basicInformation = {
+    firstName: profile.firstName || '',
+    lastName: profile.lastName || '',
+    email: profile.email || '',
+    accountAddress: {
+      street: profile.address?.street || '',
+      city: profile.address?.city || '',
+      state: profile.address?.state || '',
+      zipcode: profile.address?.zipcode || '',
+    },
+  }
+
+  // ---- householdSetup
+  const householdSetup = {
+    adults: Number(profile.adults) || 0,
+    teens: Number(profile.teens) || 0,
+    children: Number(profile.children) || 0,
+    toddlersInfants: Number(profile.toddlers) || 0,
+    portionsPerDinner: Number(profile.portionsPerMeal) || 4,
+    dinnersPerWeek: Number(profile.dinnersPerWeek) || 3,
+  }
+
+  // ---- cookingPreferences
+  const equipment = Array.isArray(profile.equipment) ? [...profile.equipment] : []
+  if (profile.otherEquipment && !equipment.includes(profile.otherEquipment)) {
+    equipment.push(profile.otherEquipment)
+  }
+  const cookingPreferences = {
+    cookingSkill: profile.cookingSkill || 'Beginner',
+    cookingTimePreference: profile.cookingTime || '30 min',
+    equipment,
+  }
+
+  // ---- dietaryProfile
+  const dietaryProfile = {
+    allergiesRestrictions: csvToArray(profile.allergies),
+    dislikesAvoidList: csvToArray(profile.dislikes),
+    dietaryPrograms: csvToArray(profile.dietaryPrograms),
+    notes: profile.macros || undefined,
+  }
+
+  // ---- shoppingPreferences
+  const shoppingPreferences = {
+    storesNearMe: csvToArray(profile.storesNearby),
+    preferredGroceryStore: profile.preferredStore || '',
+    preferOrganic: profile.organicPreference || 'I dont care',
+    preferNationalBrands: profile.brandPreference || 'I dont care',
+  }
+
+  // save in the exact keys the dashboard code reads
+  localStorage.setItem('ic_basic', JSON.stringify(basicInformation))
+  localStorage.setItem('ic_house', JSON.stringify(householdSetup))
+  localStorage.setItem('ic_cook', JSON.stringify(cookingPreferences))
+  localStorage.setItem('ic_diet', JSON.stringify(dietaryProfile))
+  localStorage.setItem('ic_shop', JSON.stringify(shoppingPreferences))
+
+  // keep your existing keys too (harmless for other parts of app)
+  localStorage.setItem('accountProfile', JSON.stringify(profile))
+  localStorage.setItem('plan', 'trial')
+}
 
 export default function SignupPage() {
   const router = useRouter()
@@ -69,9 +141,9 @@ export default function SignupPage() {
     })
   }
 
+  /** FINAL action: persist everything in the shape the dashboard expects, then go */
   function finishSignup() {
-    localStorage.setItem('accountProfile', JSON.stringify(profile))
-    localStorage.setItem('plan', 'trial')
+    persistSignupToLocalStorage(profile)
     router.push('/dashboard')
   }
 
@@ -182,9 +254,9 @@ export default function SignupPage() {
               While we try to accommodate dietary requests, ALWAYS review purchase orders to ensure ingredients meet your criteria.  
               Examples: Dairy, Gluten, Shellfish, Soy, Peanuts.
             </p>
-            <textarea className="w-full border rounded px-2 py-1" rows={2} placeholder="Allergies & Restrictions" value={profile.allergies} onChange={e => handleChange('allergies', e.target.value)} />
-            <textarea className="w-full border rounded px-2 py-1" rows={2} placeholder="Dislikes / Avoid List" value={profile.dislikes} onChange={e => handleChange('dislikes', e.target.value)} />
-            <input className="w-full border rounded px-2 py-1" placeholder="Dietary programs (Keto, Paleo, Diabetic, etc.)" value={profile.dietaryPrograms} onChange={e => handleChange('dietaryPrograms', e.target.value)} />
+            <textarea className="w-full border rounded px-2 py-1" rows={2} placeholder="Allergies & Restrictions (comma separated)" value={profile.allergies} onChange={e => handleChange('allergies', e.target.value)} />
+            <textarea className="w-full border rounded px-2 py-1" rows={2} placeholder="Dislikes / Avoid List (comma separated)" value={profile.dislikes} onChange={e => handleChange('dislikes', e.target.value)} />
+            <input className="w-full border rounded px-2 py-1" placeholder="Dietary programs (Keto, Paleo, Diabetic, etc.) — comma separated" value={profile.dietaryPrograms} onChange={e => handleChange('dietaryPrograms', e.target.value)} />
             <textarea className="w-full border rounded px-2 py-1" rows={2} placeholder="Macro targets (Calories, Protein, Carbs, Fat, etc.)" value={profile.macros} onChange={e => handleChange('macros', e.target.value)} />
             <div className="flex justify-between mt-6">
               <button onClick={() => setStep(3)} className="px-4 py-2 bg-gray-200 rounded">← Back</button>
@@ -197,7 +269,7 @@ export default function SignupPage() {
         {step === 5 && (
           <div className="space-y-4">
             <h2 className="text-xl font-semibold">Shopping Preferences</h2>
-            <input className="w-full border rounded px-2 py-1" placeholder="Stores Near Me" value={profile.storesNearby} onChange={e => handleChange('storesNearby', e.target.value)} />
+            <input className="w-full border rounded px-2 py-1" placeholder="Stores Near Me (comma separated)" value={profile.storesNearby} onChange={e => handleChange('storesNearby', e.target.value)} />
             <input className="w-full border rounded px-2 py-1" placeholder="Preferred Grocery Store" value={profile.preferredStore} onChange={e => handleChange('preferredStore', e.target.value)} />
             <label>"Do you prefer to shop organic when possible?"</label>
             <select className="w-full border rounded px-2 py-1" value={profile.organicPreference} onChange={e => handleChange('organicPreference', e.target.value)}>
