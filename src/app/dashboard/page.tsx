@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import N8NGenerate, {
-  BasicInformation, HouseholdSetup, CookingPreferences,
-  DietaryProfile, ShoppingPreferences, ClientPayload
-} from '../components/N8NGenerate';  // <- ../ not ./
+  BasicInformation,
+  HouseholdSetup,
+  CookingPreferences,
+  DietaryProfile,
+  ShoppingPreferences,
+  ClientPayload,
+} from '../../components/N8NGenerate';
 
 
 /**
