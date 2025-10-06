@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   // Redirect back to home on the same origin that made the request
   return NextResponse.redirect(new URL('/', request.url))
 }
-// src/app/auth/signout/page.tsx
+// src/app/auth/signout/page.ts
 export default function SignOutPage() {
   return (
     <form action="/auth/signout" method="post">
