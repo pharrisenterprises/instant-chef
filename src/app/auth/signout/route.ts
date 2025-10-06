@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server';
-import { createServer } from '@/lib/supabase/server';
+// src/app/auth/signout/route.ts
+import { NextResponse } from 'next/server'
+import { createClient } from '@/utils/supabase/server' // adjust your path
 
-export async function POST() {
-  const supabase = createServer();
-  await supabase.auth.signOut();
-  return NextResponse.redirect(new URL('/', process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'));
+export async function POST(request: Request) {
+  const supabase = createClient()
+  await supabase.auth.signOut()
+
+  // Redirect back to home on the same origin that made the request
+  return NextResponse.redirect(new URL('/', request.url))
 }
-<form action="/auth/signout" method="post">
-  <button className="rounded-lg bg-black text-white px-4 py-2">Sign out</button>
-</form>
