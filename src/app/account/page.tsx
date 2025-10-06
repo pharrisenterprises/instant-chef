@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+
+export const dynamic = 'force-dynamic';
 
 const equipmentOptions = [
   'Air fryer',
@@ -85,8 +87,8 @@ const empty: Omit<Profile, 'id' | 'onboarding_completed'> = {
   children: 0,
   toddlers: 0,
 
-  portions_per_dinner: 4,
-  dinners_per_week: 3,
+  portions_per_dinner: 0,
+  dinners_per_week: 0,
 
   cooking_skill: 'Beginner',
   cooking_time: '30 min',
@@ -106,8 +108,17 @@ const empty: Omit<Profile, 'id' | 'onboarding_completed'> = {
 };
 
 export default function AccountPage() {
+  // Wrap the part that uses useSearchParams in Suspense
+  return (
+    <Suspense fallback={<div className="min-h-screen grid place-items-center text-gray-500">Loading…</div>}>
+      <AccountContent />
+    </Suspense>
+  );
+}
+
+function AccountContent() {
   const router = useRouter();
-  const search = useSearchParams();
+  const search = useSearchParams(); // now safely inside a Suspense boundary
   const forceEdit = search.get('edit') === '1';
 
   const supabase = useMemo(() => createClient(), []);
@@ -142,7 +153,7 @@ export default function AccountPage() {
         console.error('load profile error:', error);
       }
 
-      // If row doesn’t exist (shouldn’t happen because of trigger), construct default
+      // If row doesn’t exist, construct default
       const row = (data as Profile | null) ?? ({
         id: uid,
         onboarding_completed: false,
@@ -197,14 +208,12 @@ export default function AccountPage() {
     const payload: Partial<Profile> = {
       ...profile,
       id: userId,
-      // If delivery is same, clear the separate fields to avoid confusion
       ...(profile.delivery_same_as_account ? {
         delivery_street: '',
         delivery_city: '',
         delivery_state: '',
         delivery_zipcode: '',
       } : {}),
-      // Only mark completed when finishing
       onboarding_completed: nextAction === 'finish' ? true : profile.onboarding_completed,
     };
 
