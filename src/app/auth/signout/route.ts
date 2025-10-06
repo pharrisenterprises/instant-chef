@@ -1,21 +1,13 @@
 // src/app/auth/signout/route.ts
 import { NextResponse } from 'next/server'
-import { createClient } from '@/utils/supabase/server' // adjust your path
+import { createClient } from '@/utils/supabase/server' // adjust path to your helper
 
-export async function POST(request: Request) {
+export async function POST() {
   const supabase = createClient()
   await supabase.auth.signOut()
 
-  // Redirect back to home on the same origin that made the request
-  return NextResponse.redirect(new URL('/', request.url))
-}
-// src/app/auth/signout/page.ts
-export default function SignOutPage() {
-  return (
-    <form action="/auth/signout" method="post">
-      <button className="rounded-lg bg-black text-white px-4 py-2">
-        Sign out
-      </button>
-    </form>
+  // Redirect home; use env base if set, otherwise same-origin is fine too
+  return NextResponse.redirect(
+    new URL('/', process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000')
   )
 }
