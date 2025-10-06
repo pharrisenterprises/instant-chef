@@ -1,10 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
+export const dynamic = 'force-dynamic';
+
 export default function AuthPage() {
+  // Wrap any useSearchParams usage in Suspense
+  return (
+    <Suspense fallback={<div className="min-h-screen grid place-items-center text-gray-500">Loading…</div>}>
+      <AuthInner />
+    </Suspense>
+  );
+}
+
+function AuthInner() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,7 +25,7 @@ export default function AuthPage() {
 
   const router = useRouter();
   const next = useSearchParams().get('next') || '/account';
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
