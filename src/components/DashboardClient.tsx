@@ -1,44 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"; // 👈 make sure this is installed
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import WeeklyPlanner from "@/components/WeeklyPlannerSection";
 import MenuCards from "@/components/MenuCardsSection";
 import ShoppingCart from "@/components/ShoppingCartSection";
 import PantrySection from "@/components/PantrySection";
 import BarSection from "@/components/BarSection";
 import type { PantryItem, BarItem, MenuItem } from "@/lib/types";
-
-type BasicInformation = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  accountAddress: { street: string; city: string; state: string; zipcode: string };
-};
-type HouseholdSetup = {
-  adults: number;
-  teens: number;
-  children: number;
-  toddlersInfants: number;
-  portionsPerDinner: number;
-  dinnersPerWeek?: number;
-};
-type CookingPreferences = {
-  cookingSkill: string;
-  cookingTimePreference: string;
-  equipment: string[];
-};
-type DietaryProfile = {
-  allergiesRestrictions: string[];
-  dislikesAvoidList: string[];
-  dietaryPrograms: string[];
-};
-type ShoppingPreferences = {
-  storesNearMe: string[];
-  preferredGroceryStore: string;
-  preferOrganic: string;
-  preferNationalBrands: string;
-};
 
 export default function DashboardClient() {
   const supabase = createClientComponentClient();
@@ -65,71 +34,87 @@ export default function DashboardClient() {
     extras: "",
   });
 
-  // 🟢 Fetch user data from Supabase
+  // ✅ Fetch profile data from Supabase
   useEffect(() => {
     (async () => {
       try {
-        const { data: userData, error: userError } = await supabase
+        const { data, error } = await supabase
           .from("profiles")
           .select(
-            "first_name, last_name, email, street, city, state, zipcode, adults, teens, children, toddlers, portions_per_dinner, cooking_skill, cooking_time_pref, equipment, allergies, dislikes, programs, store, prefer_organic, prefer_brands"
+            "email, first_name, last_name, account_street, account_city, account_state, account_zipcode, adults, teens, children, toddlers, portions_per_dinner, dinners_per_week, cooking_skill, cooking_time, equipment, allergies, dislikes, dietary_programs, preferred_store, organic_preference, brand_preference"
           )
+          .eq("email", "pharrisenterprises@gmail.com") // 🔥 TEMP hardcoded; replace with current session email if needed
           .single();
 
-        if (userError) throw userError;
-        if (userData) {
-          // Map supabase fields to app structure
-          setProfile({
-            firstName: userData.first_name,
-            lastName: userData.last_name,
-            email: userData.email,
-            accountAddress: {
-              street: userData.street,
-              city: userData.city,
-              state: userData.state,
-              zipcode: userData.zipcode,
-            },
-          });
+        if (error) throw error;
+        if (!data) throw new Error("No profile found");
 
-          setHousehold({
-            adults: userData.adults ?? 0,
-            teens: userData.teens ?? 0,
-            children: userData.children ?? 0,
-            toddlersInfants: userData.toddlers ?? 0,
-            portionsPerDinner: userData.portions_per_dinner ?? 4,
-            dinnersPerWeek: weekly.dinners,
-          });
+        // Basic Info
+        setProfile({
+          firstName: data.first_name,
+          lastName: data.last_name,
+          email: data.email,
+          accountAddress: {
+            street: data.account_street ?? "",
+            city: data.account_city ?? "",
+            state: data.account_state ?? "",
+            zipcode: data.account_zipcode ?? "",
+          },
+        });
 
-          setCookingPrefs({
-            cookingSkill: userData.cooking_skill ?? "Beginner",
-            cookingTimePreference: userData.cooking_time_pref ?? "30 min",
-            equipment: userData.equipment ?? [],
-          });
+        // Household
+        setHousehold({
+          adults: data.adults ?? 0,
+          teens: data.teens ?? 0,
+          children: data.children ?? 0,
+          toddlersInfants: data.toddlers ?? 0,
+          portionsPerDinner: data.portions_per_dinner ?? 4,
+          dinnersPerWeek: data.dinners_per_week ?? 4,
+        });
 
-          setDietary({
-            allergiesRestrictions: userData.allergies ?? [],
-            dislikesAvoidList: userData.dislikes ?? [],
-            dietaryPrograms: userData.programs ?? [],
-          });
+        // Cooking Preferences
+        setCookingPrefs({
+          cookingSkill: data.cooking_skill ?? "Beginner",
+          cookingTimePreference: data.cooking_time ?? "30 min",
+          equipment: Array.isArray(data.equipment)
+            ? data.equipment
+            : data.equipment
+            ? [data.equipment]
+            : [],
+        });
 
-          setShopping({
-            storesNearMe: [],
-            preferredGroceryStore: userData.store ?? "",
-            preferOrganic: userData.prefer_organic ?? "I dont care",
-            preferNationalBrands: userData.prefer_brands ?? "No preference",
-          });
-        }
+        // Dietary Profile
+        setDietary({
+          allergiesRestrictions:
+            data.allergies && data.allergies !== "No"
+              ? [data.allergies]
+              : [],
+          dislikesAvoidList: data.dislikes ? [data.dislikes] : [],
+          dietaryPrograms:
+            data.dietary_programs && data.dietary_programs !== "No"
+              ? [data.dietary_programs]
+              : [],
+        });
+
+        // Shopping Preferences
+        setShopping({
+          storesNearMe: data.stores_near_me ? [data.stores_near_me] : [],
+          preferredGroceryStore: data.preferred_store ?? "",
+          preferOrganic: data.organic_preference ?? "I dont care",
+          preferNationalBrands: data.brand_preference ?? "No preference",
+        });
       } catch (err) {
-        console.error("Failed to load Supabase profile:", err);
+        console.error("Supabase fetch failed:", err);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
+  // ✅ Generate menus and send to N8N
   async function generateMenus() {
     if (loading) {
-      alert("Please wait, loading profile data...");
+      alert("Please wait — loading profile data from Supabase...");
       return;
     }
 
@@ -183,7 +168,7 @@ export default function DashboardClient() {
       generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
     };
 
-    console.log("Sending to /api/n8n/trigger", payload);
+    console.log("🔥 Sending to /api/n8n/trigger", payload);
 
     const res = await fetch("/api/n8n/trigger", {
       method: "POST",
@@ -193,18 +178,18 @@ export default function DashboardClient() {
 
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
-      alert(`Failed to trigger n8n (${res.status}): ${txt?.slice(0, 200)}`);
+      alert(`Failed to trigger N8N (${res.status}) ${txt?.slice(0, 150)}`);
       return;
     }
 
     const { correlationId } = await res.json();
-    console.log("✅ n8n workflow started:", correlationId);
+    console.log("✅ Workflow started:", correlationId);
   }
 
   if (loading) {
     return (
-      <div className="p-8 text-center text-gray-500">
-        Loading your account data...
+      <div className="p-6 text-center text-gray-500">
+        Loading your account data from Supabase...
       </div>
     );
   }
