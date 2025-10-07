@@ -1,228 +1,262 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from "react";
 
-/* ---------- Types you can reuse elsewhere ---------- */
-export type BasicInformation = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  accountAddress: { street: string; city: string; state: string; zipcode: string };
-};
+// Public env var on Vercel. Falls back to your exact n8n Production URL.
+const N8N_URL =
+  (process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL as string) ||
+  "https://pharrisenterpises.app.n8n.cloud/webhook/Instantly-chef-lead-intake";
 
-export type HouseholdSetup = {
-  adults: number;
-  teens: number;
-  children: number;
-  toddlersInfants: number;
+type WeeklyPlannerUI = {
   portionsPerDinner: number;
-  dinnersPerWeek?: number;
+  groceryStore: string;
+  dinnersNeededThisWeek: number;
+  budgetType: "Per week ($)" | "Per meal ($)" | "none";
+  budgetValue: number | "";
+  weeklyOnHandText: string;
+  weeklyMood: string;
+  weeklyExtras: string;
 };
 
-export type CookingPreferences = {
-  cookingSkill: string;
-  cookingTimePreference: string;
-  equipment: string[];
-};
+export default function N8NGenerate({
+  weeklyPlanner,
+  pantrySnapshot,
+  barSnapshot,
+  currentMenusCount,
+  onStart,
+}: {
+  weeklyPlanner?: WeeklyPlannerUI; // <- make optional, we’ll guard
+  pantrySnapshot: Array<{ name: string; qty?: string | number }>;
+  barSnapshot: Array<{ name: string; qty?: string | number }>;
+  currentMenusCount: number;
+  onStart?: () => void;
+}) {
+  const [working, setWorking] = useState(false);
 
-export type DietaryProfile = {
-  allergiesRestrictions: string[];
-  dislikesAvoidList: string[];
-  dietaryPrograms: string[];
-  notes?: string;
-};
-
-export type ShoppingPreferences = {
-  storesNearMe: string[];
-  preferredGroceryStore: string;
-  preferOrganic: string;
-  preferNationalBrands: string;
-};
-
-export type ClientPayload = {
-  basicInformation: BasicInformation;
-  householdSetup: HouseholdSetup;
-  cookingPreferences: CookingPreferences;
-  dietaryProfile: DietaryProfile;
-  shoppingPreferences: ShoppingPreferences;
-  extra?: Record<string, any>;
-};
-
-/* ---------- Safe JSON poster (handles empty / non-JSON bodies) ---------- */
-async function postJSON<T>(url: string, body: any): Promise<T> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  const raw = await res.text(); // read once
-  let data: any = null;
-  try {
-    if (raw) data = JSON.parse(raw);
-  } catch {
-    // non-JSON body (e.g., empty) is fine; we'll handle below
-  }
-
-  if (!res.ok) {
-    const msg = data?.error
-      ? `${data.error}${data.details ? `: ${data.details}` : ''}`
-      : `Request failed (${res.status}) ${raw?.slice(0, 200) || ''}`;
-    throw new Error(msg);
-  }
-  if (data == null) throw new Error('Empty response from server');
-  return data as T;
-}
-
-/* ---------- Component ---------- */
-export default function N8NGenerate({ client }: { client: ClientPayload }) {
-  const [cid, setCid] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<any>(null);
-  const [status, setStatus] = useState<string>('idle');
-
-  // polling state
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearTimers() {
-    if (pollTimer.current) clearInterval(pollTimer.current);
-    if (timeoutTimer.current) clearTimeout(timeoutTimer.current);
-    pollTimer.current = null;
-    timeoutTimer.current = null;
-  }
-
-  async function start() {
-    setError(null);
-    setResult(null);
-    setCid(null);
-    setStatus('triggering');
-    setLoading(true);
-    clearTimers();
-
+  // Safe access to localStorage JSON
+  function readLS<T>(key: string, fallback: T): T {
     try {
-      // Hit our API route which forwards to n8n webhook and returns a correlationId
-      const r = await postJSON<{ correlationId: string; status: string }>(
-        '/api/n8n/trigger',
-        {
-          client,
-          // You can toggle these flags if needed later
-          generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
-        }
-      );
-      setCid(r.correlationId);
-      setStatus('waiting');
-      // polling & safety timeout
-      beginPolling(r.correlationId);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to trigger workflow');
-      setStatus('error');
-      setLoading(false);
+      const raw = localStorage.getItem(key);
+      return raw ? (JSON.parse(raw) as T) : fallback;
+    } catch {
+      return fallback;
     }
   }
 
-  function cancel() {
-    clearTimers();
-    setStatus('cancelled');
-    setLoading(false);
+  // Normalize/guard all weekly values so we never access undefined
+  function getSafeWeekly(): WeeklyPlannerUI {
+    return {
+      portionsPerDinner: Number(
+        weeklyPlanner?.portionsPerDinner ?? 4
+      ),
+      groceryStore: weeklyPlanner?.groceryStore ?? "",
+      dinnersNeededThisWeek: Number(
+        weeklyPlanner?.dinnersNeededThisWeek ?? 0
+      ),
+      budgetType: (weeklyPlanner?.budgetType ?? "none") as
+        | "Per week ($)"
+        | "Per meal ($)"
+        | "none",
+      budgetValue:
+        (weeklyPlanner?.budgetValue ?? "") as number | "",
+      weeklyOnHandText: weeklyPlanner?.weeklyOnHandText ?? "",
+      weeklyMood: weeklyPlanner?.weeklyMood ?? "",
+      weeklyExtras: weeklyPlanner?.weeklyExtras ?? "",
+    };
   }
 
-  function beginPolling(correlationId: string) {
-    // poll every 2s
-    pollTimer.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/n8n/callback?cid=${encodeURIComponent(correlationId)}`, {
-          // prevent any caching weirdness on some CDNs
-          cache: 'no-store',
-        });
-
-        // Empty / non-JSON is fine during "not ready yet"
-        const txt = await res.text();
-        let data: any = null;
-        try {
-          if (txt) data = JSON.parse(txt);
-        } catch {
-          data = null;
-        }
-
-        // We accept either a "done" status or a generic ok: true
-        if (data && (data.status === 'done' || data.ok === true || data.result)) {
-          setResult(data);
-          setStatus('done');
-          setLoading(false);
-          clearTimers();
-        }
-      } catch {
-        // ignore transient poll errors
+  async function sendToN8N() {
+    try {
+      if (!N8N_URL) {
+        alert(
+          "Missing NEXT_PUBLIC_N8N_WEBHOOK_URL on Vercel (or fallback URL)."
+        );
+        return;
       }
-    }, 2000);
 
-    // hard stop after 2 minutes
-    timeoutTimer.current = setTimeout(() => {
-      clearTimers();
-      setLoading(false);
-      setStatus('timeout');
-      setError('Timed out waiting for n8n (2 minutes). Check your n8n workflow or callback URL.');
-    }, 120000);
+      setWorking(true);
+      onStart?.(); // wipe menus immediately
+
+      const safeWeekly = getSafeWeekly();
+
+      // ----- Pull Account Profile blocks you store in localStorage -----
+      type BasicInformation = {
+        firstName: string;
+        lastName: string;
+        email: string;
+        accountAddress: {
+          street: string;
+          city: string;
+          state: string;
+          zipcode: string;
+        };
+      };
+      type HouseholdSetup = {
+        adults: number;
+        teens: number;
+        children: number;
+        toddlersInfants: number;
+        portionsPerDinner: number;
+      };
+      type CookingPreferences = {
+        cookingSkill: string;
+        cookingTimePreference: string;
+        equipment: string[];
+      };
+      type DietaryProfile = {
+        allergiesRestrictions: string[];
+        dislikesAvoidList: string[];
+        dietaryPrograms: string[];
+        notes?: string;
+      };
+      type ShoppingPreferences = {
+        storesNearMe: string[];
+        preferredGroceryStore: string;
+        preferOrganic: string;
+        preferNationalBrands: string;
+      };
+
+      const basicInformation = readLS<BasicInformation>("ic_basic", {
+        firstName: "",
+        lastName: "",
+        email: "",
+        accountAddress: { street: "", city: "", state: "", zipcode: "" },
+      });
+
+      const householdSetup = readLS<HouseholdSetup>("ic_house", {
+        adults: 0,
+        teens: 0,
+        children: 0,
+        toddlersInfants: 0,
+        portionsPerDinner: safeWeekly.portionsPerDinner,
+      });
+
+      const cookingPreferences = readLS<CookingPreferences>("ic_cook", {
+        cookingSkill: "Beginner",
+        cookingTimePreference: "30 min",
+        equipment: [],
+      });
+
+      const dietaryProfile = readLS<DietaryProfile>("ic_diet", {
+        allergiesRestrictions: [],
+        dislikesAvoidList: [],
+        dietaryPrograms: [],
+      });
+
+      const shoppingPreferences = readLS<ShoppingPreferences>("ic_shop", {
+        storesNearMe: [],
+        preferredGroceryStore: safeWeekly.groceryStore || "",
+        preferOrganic: "I dont care",
+        preferNationalBrands: "I dont care",
+      });
+
+      // ----- Normalize weekly for backend -----
+      const budgetTypeMap: Record<
+        WeeklyPlannerUI["budgetType"],
+        "perWeek" | "perMeal" | "none"
+      > = {
+        "Per week ($)": "perWeek",
+        "Per meal ($)": "perMeal",
+        none: "none",
+      };
+
+      const weeklyPlan = {
+        portionsPerDinner:
+        Number(
+          householdSetup.portionsPerDinner ?? safeWeekly.portionsPerDinner ?? 4
+        ),
+        groceryStore:
+          shoppingPreferences.preferredGroceryStore ||
+          safeWeekly.groceryStore ||
+          "",
+        dinnersThisWeek: Number(
+          safeWeekly.dinnersNeededThisWeek ?? 0
+        ),
+        budget: {
+          type: budgetTypeMap[safeWeekly.budgetType],
+          value:
+            safeWeekly.budgetValue === "" ||
+            safeWeekly.budgetValue === undefined
+              ? undefined
+              : Number(safeWeekly.budgetValue),
+        },
+        onHandCsv: safeWeekly.weeklyOnHandText.trim(),
+        mood: safeWeekly.weeklyMood.trim(),
+        extras: safeWeekly.weeklyExtras.trim(),
+        ui: safeWeekly, // helpful to inspect inside n8n
+      };
+
+      // ----- Final payload to n8n -----
+      const payload = {
+        client: {
+          basicInformation,
+          householdSetup,
+          cookingPreferences,
+          dietaryProfile,
+          shoppingPreferences,
+        },
+        weeklyPlan,
+        pantrySnapshot: pantrySnapshot ?? [],
+        barSnapshot: barSnapshot ?? [],
+        currentMenusCount: Number(currentMenusCount ?? 0),
+        generate: {
+          menus: true,
+          heroImages: true,
+          menuCards: true,
+          receipt: true,
+        },
+        source: "instant-chef-web",
+        at: new Date().toISOString(),
+      };
+
+      console.log("[N8NGenerate] POST →", N8N_URL, payload);
+
+      // DIRECT POST TO N8N WEBHOOK
+      const res = await fetch(N8N_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        mode: "cors",
+        body: JSON.stringify(payload),
+      });
+
+      const text = await res.text().catch(() => "");
+      console.log("[N8NGenerate] n8n response", res.status, text);
+
+      if (!res.ok) {
+        throw new Error(
+          `n8n rejected (${res.status}): ${text?.slice(0, 600)}`
+        );
+      }
+
+      alert("n8n received the request.");
+    } catch (err: any) {
+      console.error("[N8NGenerate] ERROR", err);
+      alert(err?.message || "Failed to POST to n8n. See console for details.");
+    } finally {
+      setWorking(false);
+    }
   }
-
-  // cleanup on unmount
-  useEffect(() => {
-    return () => clearTimers();
-  }, []);
-
-  const canTrigger = !loading;
 
   return (
-    <div className="mt-4 border rounded-xl p-4 bg-white">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+    <div className="flex items-center gap-3">
+      <button
+        className={`px-5 py-2 rounded text-white ${
+          working ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"
+        }`}
+        onClick={sendToN8N}
+        disabled={working}
+        title="Send to n8n"
+      >
+        {working ? "Working…" : "Generate Menu (Sample)"}
+      </button>
+
+      {working && (
         <button
-          onClick={start}
-          disabled={!canTrigger}
-          className="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-60"
+          className="px-4 py-2 rounded bg-gray-200 text-gray-700 cursor-not-allowed"
+          disabled
         >
-          {loading ? 'Generating…' : 'Generate Menu'}
+          Working…
         </button>
-
-        {loading && (
-          <button
-            onClick={cancel}
-            className="px-3 py-2 rounded border bg-white text-gray-700"
-          >
-            Cancel
-          </button>
-        )}
-
-        {cid && !result && (
-          <span className="text-sm text-gray-600">
-            {status === 'triggering' && 'Starting workflow…'}
-            {status === 'waiting' && <>Waiting on n8n… (cid {cid.slice(0, 8)}…)</>}
-          </span>
-        )}
-      </div>
-
-      {error && (
-        <div className="mt-3 p-3 rounded bg-red-50 text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
-      {!error && status === 'timeout' && (
-        <div className="mt-3 p-3 rounded bg-yellow-50 text-yellow-800 text-sm">
-          Timed out waiting for results. Verify your n8n workflow finishes and
-          that the <code>/api/n8n/callback</code> URL in your n8n HTTP&nbsp;Request node
-          points to this deployment.
-        </div>
-      )}
-
-      {result && (
-        <div className="mt-4">
-          <div className="font-semibold">Results</div>
-          <pre className="mt-2 p-3 bg-gray-50 rounded overflow-auto text-xs">
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        </div>
       )}
     </div>
   );
