@@ -12,6 +12,17 @@ type SnapshotItem = {
   updatedAt?: number
 }
 
+type WeeklyPlanner = {
+  portionsPerDinner: number
+  groceryStore: string
+  dinnersNeededThisWeek: number
+  budgetType: 'Per week ($)' | 'Per meal ($)' | string
+  budgetValue: number | '' // allow blank
+  weeklyOnHandText: string
+  weeklyMood: string
+  weeklyExtras: string
+}
+
 export default function N8NGenerate({
   weeklyMood,
   weeklyExtras,
