@@ -2,6 +2,7 @@
   
 import { useState } from 'react'
 import type { Profile, Weekly, Measure } from '@/lib/types'
+import N8NGenerate from '@/components/N8NGenerate'
 
 export default function WeeklyPlanner({
   profile,
