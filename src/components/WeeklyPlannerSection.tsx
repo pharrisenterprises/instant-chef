@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { Profile, Weekly } from "@/lib/types";
 
+const N8N_URL = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL as string; // must be set on Vercel
+
 function readLS<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -58,10 +60,15 @@ export default function WeeklyPlanner({
 
   async function onGenerateMenu() {
     try {
+      if (!N8N_URL) {
+        alert("NEXT_PUBLIC_N8N_WEBHOOK_URL is not set on Vercel.");
+        return;
+      }
+
       setWorking(true);
       clearMenus();
 
-      // Read Account Profile blocks saved in localStorage
+      // ---- Read Account Profile blocks from localStorage ----
       type BasicInformation = {
         firstName: string;
         lastName: string;
@@ -123,6 +130,7 @@ export default function WeeklyPlanner({
         preferNationalBrands: "I dont care",
       });
 
+      // ---- Normalize weekly for backend ----
       const budgetTypeMap: Record<typeof weeklyPlanner.budgetType, "perWeek" | "perMeal" | "none"> = {
         "Per week ($)": "perWeek",
         "Per meal ($)": "perMeal",
@@ -142,10 +150,10 @@ export default function WeeklyPlanner({
         onHandCsv: weeklyPlanner.weeklyOnHandText?.trim() || "",
         mood: weeklyPlanner.weeklyMood?.trim() || "",
         extras: weeklyPlanner.weeklyExtras?.trim() || "",
-        ui: weeklyPlanner,
+        ui: weeklyPlanner, // for visibility in n8n if you want to inspect
       };
 
-      const body = {
+      const payload = {
         client: {
           basicInformation,
           householdSetup,
@@ -158,51 +166,34 @@ export default function WeeklyPlanner({
         barSnapshot,
         currentMenusCount,
         generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
+        // Optional meta—handy in n8n
+        source: "instant-chef-web",
+        at: new Date().toISOString(),
       };
 
-      console.log("[WeeklyPlanner] POST /api/n8n/trigger →", body);
+      console.log("[WeeklyPlanner] → n8n", N8N_URL, payload);
 
-      const res = await fetch("/api/n8n/trigger", {
+      // DIRECT POST TO N8N WEBHOOK (no API route)
+      const res = await fetch(N8N_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        mode: "cors", // n8n allows this
+        body: JSON.stringify(payload),
       });
 
-      const raw = await res.text().catch(() => "");
-      let json: any = null;
-      try { json = raw ? JSON.parse(raw) : null; } catch {}
-
-      console.log("[WeeklyPlanner] /api/n8n/trigger response", res.status, json || raw);
+      const text = await res.text().catch(() => "");
+      console.log("[WeeklyPlanner] n8n response", res.status, text);
 
       if (!res.ok) {
-        const msg = json?.error || json?.details || raw || `Trigger failed with HTTP ${res.status}`;
-        throw new Error(msg);
+        throw new Error(`n8n rejected (${res.status}): ${text?.slice(0, 600)}`);
       }
 
-      if (json?.correlationId) console.log("[WeeklyPlanner] correlationId:", json.correlationId);
-      alert("n8n trigger accepted.");
+      alert("n8n received the request.");
     } catch (err: any) {
       console.error("[WeeklyPlanner] ERROR:", err);
-      alert(err?.message || "Failed to trigger n8n. See console for details.");
+      alert(err?.message || "Failed to POST to n8n.");
     } finally {
       setWorking(false);
-    }
-  }
-
-  async function testTrigger() {
-    // Minimal ping to prove /api/n8n/trigger is reachable from this page
-    try {
-      const r = await fetch("/api/n8n/trigger", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ping: "ok" }),
-      });
-      const t = await r.text();
-      console.log("[WeeklyPlanner] Test Trigger status:", r.status, t);
-      alert(`Test Trigger → HTTP ${r.status}`);
-    } catch (e) {
-      console.error("[WeeklyPlanner] Test Trigger error:", e);
-      alert("Test Trigger failed. See console.");
     }
   }
 
@@ -210,18 +201,170 @@ export default function WeeklyPlanner({
     <div className="bg-white rounded-2xl shadow p-6">
       <h2 className="text-xl font-bold mb-4">Weekly Menu Planning</h2>
 
-      {/* … your existing inputs unchanged … */}
+      <div className="grid md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium">Portions per Dinner</label>
+          <div className="flex items-center gap-2 mt-1">
+            <button
+              className="px-2 py-1 border rounded"
+              onClick={() =>
+                setProfile({ ...profile, portionDefault: Math.max(1, profile.portionDefault - 1) })
+              }
+              disabled={working}
+            >
+              -
+            </button>
+            <input
+              type="number"
+              className="w-20 border rounded px-2 py-1 text-center"
+              value={profile.portionDefault}
+              onChange={(e) =>
+                setProfile({ ...profile, portionDefault: Math.max(1, +e.target.value) })
+              }
+              disabled={working}
+            />
+            <button
+              className="px-2 py-1 border rounded"
+              onClick={() => setProfile({ ...profile, portionDefault: profile.portionDefault + 1 })}
+              disabled={working}
+            >
+              +
+            </button>
+          </div>
+        </div>
 
-      <div className="mt-6 flex justify-end gap-3">
-        {/* Debug helper — remove once working */}
-        <button
-          className="px-5 py-2 rounded border"
-          onClick={testTrigger}
-          title="Sends a minimal payload to /api/n8n/trigger"
-        >
-          Test Trigger
-        </button>
+        <div>
+          <label className="block text-sm font-medium">Grocery Store</label>
+          <input
+            className="w-full border rounded px-3 py-2 mt-1"
+            value={profile.store}
+            onChange={(e) => setProfile({ ...profile, store: e.target.value })}
+            placeholder="e.g., Kroger"
+            disabled={working}
+          />
+        </div>
 
+        <div>
+          <label className="block text-sm font-medium">Dinners Needed This Week</label>
+          <input
+            type="number"
+            className="w-full border rounded px-3 py-2 mt-1"
+            value={weekly.dinners}
+            onChange={(e) => setWeekly({ ...weekly, dinners: Math.max(1, +e.target.value) })}
+            disabled={working}
+          />
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-4 mt-4">
+        <div>
+          <label className="block text-sm font-medium">Budget Type</label>
+          <select
+            className="w-full border rounded px-3 py-2 mt-1"
+            value={weekly.budgetType}
+            onChange={(e) => setWeekly({ ...weekly, budgetType: e.target.value as Weekly["budgetType"] })}
+            disabled={working}
+          >
+            <option value="none">No budget</option>
+            <option value="perWeek">Per week ($)</option>
+            <option value="perMeal">Per meal ($)</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Budget Value</label>
+          <input
+            type="number"
+            className="w-full border rounded px-3 py-2 mt-1"
+            value={weekly.budgetValue ?? ""}
+            onChange={(e) =>
+              setWeekly({
+                ...weekly,
+                budgetValue: e.target.value === "" ? undefined : Math.max(0, +e.target.value),
+              })
+            }
+            placeholder="e.g., 150"
+            disabled={working}
+          />
+        </div>
+        <div className="flex items-end">
+          <p className="text-xs text-gray-600">Specify weekly $ or per-meal $. Leave blank to skip.</p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <label className="block text-sm font-medium">
+          Do you have any ingredients on hand that you would like us to use in menu planning for this week?
+        </label>
+        <p className="text-xs text-gray-600">
+          (please list items with quantity included — separated by commas: e.g. 4 roma tomatoes, 2 lb boneless chicken thighs, 3 bell peppers, 4 oz truffle oil)
+        </p>
+        <textarea
+          className="w-full border rounded px-3 py-2 mt-1"
+          rows={3}
+          value={weekly.onHandText}
+          onChange={(e) => setWeekly({ ...weekly, onHandText: e.target.value })}
+          disabled={working}
+        />
+        <div className="flex items-center gap-3 mt-2">
+          <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50">
+            📷 Camera
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImageToDataUrl(file, setOnHandPreview);
+              }}
+              disabled={working}
+            />
+          </label>
+          {onHandPreview && (
+            <div className="flex items-center gap-3">
+              <img
+                src={onHandPreview}
+                alt="On hand preview"
+                width="64"
+                height="64"
+                className="rounded object-cover"
+              />
+              <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage} disabled={working}>
+                Submit
+              </button>
+              <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)} disabled={working}>
+                Retake
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <label className="block text-sm font-medium">
+          What are you in the mood for this week? (tell us what you're feeling like – if you have any goals, etc.)
+        </label>
+        <input
+          className="w-full border rounded px-3 py-2 mt-1"
+          value={weekly.mood}
+          onChange={(e) => setWeekly({ ...weekly, mood: e.target.value })}
+          disabled={working}
+        />
+      </div>
+
+      <div className="mt-4">
+        <label className="block text-sm font-medium">
+          Specify if there is anything else you want to see on the menu? (Italian, Ribeye, Indian, Pad Thai, etc.)
+        </label>
+        <input
+          className="w-full border rounded px-3 py-2 mt-1"
+          value={weekly.extras}
+          onChange={(e) => setWeekly({ ...weekly, extras: e.target.value })}
+          disabled={working}
+        />
+      </div>
+
+      <div className="mt-6 flex justify-end">
         <button
           className={`px-5 py-2 rounded text-white ${working ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
           onClick={onGenerateMenu}
