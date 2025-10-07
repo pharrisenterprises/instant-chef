@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 type SnapshotItem = {
   id: string;
   name: string;
@@ -17,7 +19,7 @@ type WeeklyPlanner = {
   groceryStore: string;
   dinnersNeededThisWeek: number;
   budgetType: 'Per week ($)' | 'Per meal ($)' | 'none' | string;
-  budgetValue: number | ''; // allow blank
+  budgetValue: number | '';
   weeklyOnHandText: string;
   weeklyMood: string;
   weeklyExtras: string;
@@ -34,7 +36,12 @@ export default function N8NGenerate({
   barSnapshot: SnapshotItem[];
   currentMenusCount: number;
 }) {
-  async function handleGenerate(sample = false) {
+  const [loading, setLoading] = useState(false);
+
+  async function handleGenerate() {
+    if (loading) return;
+    setLoading(true);
+
     const correlationId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
@@ -50,39 +57,48 @@ export default function N8NGenerate({
         barSnapshot,
         currentMenusCount,
       },
-      generate: { menus: true, heroImages: !sample, menuCards: true, receipt: true },
+      generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
       correlationId,
     };
 
-    const res = await fetch('/api/n8n/trigger', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await fetch('/api/n8n/trigger', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      alert(`Could not start workflow: ${j.error ?? 'Request failed'}`);
-      return;
+      // Try to read JSON either way for clearer messages
+      const body = await res.json().catch(() => ({} as any));
+
+      if (!res.ok) {
+        const msg =
+          body?.error ??
+          (res.status === 401
+            ? 'Please log in to generate your menu.'
+            : `Request failed (${res.status}).`);
+        alert(msg);
+        return;
+      }
+
+      alert('Got it! Generating your menu…');
+    } catch (err: any) {
+      console.error('Generate error', err);
+      alert('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
     }
-
-    alert('Got it! Generating your menu…');
   }
 
   return (
-    <div className="flex gap-3">
-      <button
-        className="rounded bg-emerald-600 text-white px-6 py-3"
-        onClick={() => handleGenerate(true)}
-      >
-        Generate Menu (Sample)
-      </button>
-      <button
-        className="rounded border px-6 py-3"
-        onClick={() => handleGenerate(false)}
-      >
-        Generate Menu
-      </button>
-    </div>
+    <button
+      type="button" // avoid implicit form submit
+      className="rounded bg-emerald-600 text-white px-6 py-3 font-medium disabled:opacity-60"
+      onClick={handleGenerate}
+      disabled={loading}
+      aria-busy={loading}
+    >
+      {loading ? 'Working…' : 'Generate Menu'}
+    </button>
   );
 }
