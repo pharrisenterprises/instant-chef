@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
       body?.correlationId ||
       crypto.createHash("sha256").update(`${Date.now()}-${Math.random()}`).digest("hex").slice(0, 32);
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL; // optional
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL; // optional callback
     const payload = {
       correlationId,
       ...(baseUrl

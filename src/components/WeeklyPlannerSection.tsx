@@ -143,7 +143,7 @@ export default function WeeklyPlanner({
         onHandCsv: weeklyPlanner.weeklyOnHandText?.trim() || "",
         mood: weeklyPlanner.weeklyMood?.trim() || "",
         extras: weeklyPlanner.weeklyExtras?.trim() || "",
-        ui: weeklyPlanner,
+        ui: weeklyPlanner, // handy debug mirror
       };
 
       const body = {
@@ -176,8 +176,7 @@ export default function WeeklyPlanner({
       console.log("[WeeklyPlanner] /api/n8n/trigger response", res.status, json || raw);
 
       if (!res.ok) {
-        const msg =
-          json?.error || json?.details || raw || `Trigger failed with HTTP ${res.status}`;
+        const msg = json?.error || json?.details || raw || `Trigger failed with HTTP ${res.status}`;
         throw new Error(msg);
       }
 
@@ -198,7 +197,7 @@ export default function WeeklyPlanner({
       <div className="grid md:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium">Portions per Dinner</label>
-        <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1">
             <button
               className="px-2 py-1 border rounded"
               onClick={() =>
@@ -265,7 +264,7 @@ export default function WeeklyPlanner({
           </select>
         </div>
         <div>
-          <label className="block text sm font-medium">Budget Value</label>
+          <label className="block text-sm font-medium">Budget Value</label>
           <input
             type="number"
             className="w-full border rounded px-3 py-2 mt-1"
