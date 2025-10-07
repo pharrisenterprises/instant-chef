@@ -24,9 +24,9 @@ export default function DashboardClient() {
     onHandCsv: "",
     mood: "",
     extras: "",
+    groceryStore: "Kroger",
   });
 
-  // 🔹 Load pantry/bar if saved locally
   useEffect(() => {
     const storedPantry = localStorage.getItem("ic_pantry");
     if (storedPantry) setPantry(JSON.parse(storedPantry));
@@ -34,89 +34,80 @@ export default function DashboardClient() {
     if (storedBar) setBar(JSON.parse(storedBar));
   }, []);
 
-  // 🔹 Fetch profile from server
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch("/api/profile", { cache: "no-store" });
         const json = await res.json();
-        if (json?.data) {
+        if (json?.ok && json.data) {
           setProfileData(json.data);
         } else {
-          console.error("No data returned from /api/profile:", json);
+          console.error("No profile data:", json);
         }
       } catch (e) {
-        console.error("Failed to fetch profile:", e);
+        console.error("Failed to fetch /api/profile", e);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  // 🔹 Build and send payload
   async function generateMenus() {
     if (loading || !profileData) {
-      alert("Profile not loaded yet — please wait.");
+      alert("Profile not loaded yet — wait a sec then try again.");
       return;
     }
 
-    const profile = profileData;
+    const p = profileData;
 
     const basicInformation = {
-      firstName: profile.first_name ?? "",
-      lastName: profile.last_name ?? "",
-      email: profile.email ?? "",
+      firstName: p.first_name ?? "",
+      lastName: p.last_name ?? "",
+      email: p.email ?? "",
       accountAddress: {
-        street: profile.account_street ?? "",
-        city: profile.account_city ?? "",
-        state: profile.account_state ?? "",
-        zipcode: profile.account_zipcode ?? "",
+        street: p.account_street ?? "",
+        city: p.account_city ?? "",
+        state: p.account_state ?? "",
+        zipcode: p.account_zipcode ?? "",
       },
     };
 
     const householdSetup = {
-      adults: profile.adults ?? 0,
-      teens: profile.teens ?? 0,
-      children: profile.children ?? 0,
-      toddlersInfants: profile.toddlers ?? 0,
-      portionsPerDinner: profile.portions_per_dinner ?? 4,
-      dinnersPerWeek: profile.dinners_per_week ?? weekly.dinners,
+      adults: p.adults ?? 0,
+      teens: p.teens ?? 0,
+      children: p.children ?? 0,
+      toddlersInfants: p.toddlers ?? 0,
+      portionsPerDinner: p.portions_per_dinner ?? 4,
+      dinnersPerWeek: p.dinners_per_week ?? weekly.dinners,
     };
 
     const cookingPreferences = {
-      cookingSkill: profile.cooking_skill ?? "Beginner",
-      cookingTimePreference: profile.cooking_time ?? "30 min",
-      equipment: Array.isArray(profile.equipment)
-        ? profile.equipment
-        : profile.equipment
-        ? [profile.equipment]
+      cookingSkill: p.cooking_skill ?? "Beginner",
+      cookingTimePreference: p.cooking_time ?? "30 min",
+      equipment: Array.isArray(p.equipment)
+        ? p.equipment
+        : p.equipment
+        ? [p.equipment]
         : [],
     };
 
     const dietaryProfile = {
-      allergiesRestrictions:
-        profile.allergies && profile.allergies !== "No"
-          ? [profile.allergies]
-          : [],
-      dislikesAvoidList: profile.dislikes ? [profile.dislikes] : [],
-      dietaryPrograms:
-        profile.dietary_programs && profile.dietary_programs !== "No"
-          ? [profile.dietary_programs]
-          : [],
+      allergiesRestrictions: p.allergies && p.allergies !== "No" ? [p.allergies] : [],
+      dislikesAvoidList: p.dislikes ? [p.dislikes] : [],
+      dietaryPrograms: p.dietary_programs && p.dietary_programs !== "No" ? [p.dietary_programs] : [],
     };
 
     const shoppingPreferences = {
-      storesNearMe: profile.stores_near_me ? [profile.stores_near_me] : [],
-      preferredGroceryStore: profile.preferred_store ?? "",
-      preferOrganic: profile.organic_preference ?? "I dont care",
-      preferNationalBrands: profile.brand_preference ?? "No preference",
+      storesNearMe: p.stores_near_me ? [p.stores_near_me] : [],
+      preferredGroceryStore: p.preferred_store ?? weekly.groceryStore ?? "",
+      preferOrganic: p.organic_preference ?? "I dont care",
+      preferNationalBrands: p.brand_preference ?? "No preference",
     };
 
     const weeklyPlan = {
       dinnersThisWeek: weekly.dinners,
       portionsPerDinner: householdSetup.portionsPerDinner ?? 4,
-      groceryStore:
-        shoppingPreferences.preferredGroceryStore || "Kroger",
+      groceryStore: shoppingPreferences.preferredGroceryStore ?? "Kroger",
       budget: {
         type: weekly.budgetType ?? "none",
         value: weekly.budgetValue || undefined,
@@ -127,16 +118,8 @@ export default function DashboardClient() {
       ui: weekly,
     };
 
-    const pantrySnapshot = pantry.map((p) => ({
-      name: p.name,
-      qty: p.qty,
-      measure: p.measure,
-    }));
-    const barSnapshot = bar.map((b) => ({
-      name: b.name,
-      qty: b.qty,
-      measure: b.measure,
-    }));
+    const pantrySnapshot = pantry.map((x) => ({ name: x.name, qty: x.qty, measure: x.measure }));
+    const barSnapshot = bar.map((x) => ({ name: x.name, qty: x.qty, measure: x.measure }));
 
     const client = {
       basicInformation,
@@ -163,7 +146,11 @@ export default function DashboardClient() {
       generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
     };
 
-    console.log("🚀 Sending to /api/n8n/trigger", payload);
+    console.log("CLIENT → /api/n8n/trigger (short)", {
+      firstName: client.basicInformation.firstName,
+      lastName: client.basicInformation.lastName,
+      email: client.basicInformation.email,
+    });
 
     const res = await fetch("/api/n8n/trigger", {
       method: "POST",
@@ -173,20 +160,16 @@ export default function DashboardClient() {
 
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
-      alert(`N8N trigger failed (${res.status}): ${txt?.slice(0, 200)}`);
+      alert(`Trigger failed (${res.status}): ${txt?.slice(0, 200)}`);
       return;
     }
 
     const { correlationId } = await res.json();
-    console.log("✅ Workflow started:", correlationId);
+    console.log("✅ started", correlationId);
   }
 
   if (loading) {
-    return (
-      <div className="p-8 text-center text-gray-500">
-        Loading your Supabase profile...
-      </div>
-    );
+    return <div className="p-8 text-center text-gray-500">Loading profile…</div>;
   }
 
   return (
@@ -212,11 +195,7 @@ export default function DashboardClient() {
       <ShoppingCart cart={cart} setCart={setCart} />
       <PantrySection pantry={pantry} setPantry={setPantry} />
       <BarSection bar={bar} setBar={setBar} />
-      <MenuCards
-        menus={menus}
-        approvedMenus={approvedMenus}
-        setApprovedMenus={setApprovedMenus}
-      />
+      <MenuCards menus={menus} approvedMenus={approvedMenus} setApprovedMenus={setApprovedMenus} />
     </div>
   );
 }
