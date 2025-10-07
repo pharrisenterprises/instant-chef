@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-/* ---------- Types ---------- */
+/* ---------- Types you can reuse elsewhere ---------- */
 export type BasicInformation = {
   firstName: string;
   lastName: string;
@@ -48,22 +48,7 @@ export type ClientPayload = {
   extra?: Record<string, any>;
 };
 
-/** Weekly UI coming from your planner form */
-export type WeeklyInputs = {
-  portionsPerDinner?: number;
-  groceryStore?: string;
-  dinners?: number; // dinners needed this week
-  budgetType?: 'none' | 'perWeek' | 'perMeal' | 'Per week ($)' | 'Per meal ($)'; // accept both forms
-  budgetValue?: number | '';
-  onHandText?: string;
-  mood?: string;
-  extras?: string;
-};
-
-export type PantryItem = Record<string, any>;
-export type BarItem = Record<string, any>;
-
-/* ---------- Utils ---------- */
+/* ---------- Safe JSON poster (handles empty / non-JSON bodies) ---------- */
 async function postJSON<T>(url: string, body: any): Promise<T> {
   const res = await fetch(url, {
     method: 'POST',
@@ -71,9 +56,13 @@ async function postJSON<T>(url: string, body: any): Promise<T> {
     body: JSON.stringify(body),
   });
 
-  const raw = await res.text();
+  const raw = await res.text(); // read once
   let data: any = null;
-  try { if (raw) data = JSON.parse(raw); } catch { /* ignore */ }
+  try {
+    if (raw) data = JSON.parse(raw);
+  } catch {
+    // non-JSON body (e.g., empty) is fine; we'll handle below
+  }
 
   if (!res.ok) {
     const msg = data?.error
@@ -85,48 +74,15 @@ async function postJSON<T>(url: string, body: any): Promise<T> {
   return data as T;
 }
 
-function readLS<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function isBlank(x: unknown) {
-  return x === undefined || x === null || (typeof x === 'string' && x.trim() === '');
-}
-function merge<A extends object, B extends object>(a: A, b: B): A & B {
-  return { ...(a as any), ...(b as any) };
-}
-function normBudgetType(
-  bt: WeeklyInputs['budgetType']
-): 'none' | 'perWeek' | 'perMeal' {
-  if (bt === 'Per week ($)') return 'perWeek';
-  if (bt === 'Per meal ($)') return 'perMeal';
-  return (bt as any) || 'none';
-}
-
 /* ---------- Component ---------- */
-export default function N8NGenerate({
-  client,
-  weekly,
-  pantrySnapshot,
-  barSnapshot,
-  currentMenusCount,
-}: {
-  client: ClientPayload;
-  weekly?: WeeklyInputs;
-  pantrySnapshot?: PantryItem[];
-  barSnapshot?: BarItem[];
-  currentMenusCount?: number;
-}) {
+export default function N8NGenerate({ client }: { client: ClientPayload }) {
   const [cid, setCid] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [status, setStatus] = useState<string>('idle');
 
+  // polling state
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -135,95 +91,6 @@ export default function N8NGenerate({
     if (timeoutTimer.current) clearTimeout(timeoutTimer.current);
     pollTimer.current = null;
     timeoutTimer.current = null;
-  }
-
-  /** Build the final body sent to /api/n8n/trigger */
-  function buildFinalBody() {
-    // 1) Load stored profile blocks (fallbacks if missing)
-    const lsBasic = readLS<BasicInformation>('ic_basic', {
-      firstName: '',
-      lastName: '',
-      email: '',
-      accountAddress: { street: '', city: '', state: '', zipcode: '' },
-    });
-    const lsHouse = readLS<HouseholdSetup>('ic_house', {
-      adults: 0, teens: 0, children: 0, toddlersInfants: 0, portionsPerDinner: 4, dinnersPerWeek: undefined,
-    });
-    const lsCook = readLS<CookingPreferences>('ic_cook', {
-      cookingSkill: 'Beginner', cookingTimePreference: '30 min', equipment: [],
-    });
-    const lsDiet = readLS<DietaryProfile>('ic_diet', {
-      allergiesRestrictions: [], dislikesAvoidList: [], dietaryPrograms: [],
-    });
-    const lsShop = readLS<ShoppingPreferences>('ic_shop', {
-      storesNearMe: [], preferredGroceryStore: '', preferOrganic: 'I dont care', preferNationalBrands: 'No preference',
-    });
-
-    // 2) Merge with props.client (props win over LS)
-    const basicInformation = merge(lsBasic, client?.basicInformation || {});
-    const householdSetup = merge(lsHouse, client?.householdSetup || {});
-    const cookingPreferences = merge(lsCook, client?.cookingPreferences || {});
-    const dietaryProfile = merge(lsDiet, client?.dietaryProfile || {});
-    const shoppingPreferences = merge(lsShop, client?.shoppingPreferences || {});
-    const extra = { ...(client?.extra || {}) };
-
-    // 3) Fold Weekly UI
-    const w = weekly || {};
-    const portionsPerDinner =
-      isBlank(householdSetup.portionsPerDinner) ? Number(w.portionsPerDinner ?? 4) : householdSetup.portionsPerDinner;
-    const dinnersThisWeek =
-      Number(isBlank(householdSetup.dinnersPerWeek) ? (w.dinners ?? 0) : householdSetup.dinnersPerWeek);
-
-    const store =
-      !isBlank(shoppingPreferences.preferredGroceryStore)
-        ? shoppingPreferences.preferredGroceryStore
-        : (w.groceryStore || '');
-
-    const weeklyPlan = {
-      dinnersThisWeek,
-      portionsPerDinner: Number(portionsPerDinner ?? 4),
-      groceryStore: store || '',
-      budget: {
-        type: normBudgetType(w.budgetType),
-        value: isBlank(w.budgetValue) ? undefined : Number(w.budgetValue),
-      },
-      onHandCsv: (w.onHandText || '').trim(),
-      mood: (w.mood || '').trim(),
-      extras: (w.extras || '').trim(),
-      ui: w, // helpful to inspect in n8n
-    };
-
-    // reflect back into profile parts
-    const mergedHousehold: HouseholdSetup = {
-      ...householdSetup,
-      portionsPerDinner: weeklyPlan.portionsPerDinner,
-      dinnersPerWeek: weeklyPlan.dinnersThisWeek,
-    };
-    const mergedShopping: ShoppingPreferences = {
-      ...shoppingPreferences,
-      preferredGroceryStore: weeklyPlan.groceryStore,
-    };
-
-    // keep legacy fields inside "extra" for backward compatibility
-    extra.weeklyMood = weeklyPlan.mood;
-    extra.weeklyExtras = weeklyPlan.extras;
-    extra.weeklyOnHandText = weeklyPlan.onHandCsv;
-
-    return {
-      client: {
-        basicInformation,
-        householdSetup: mergedHousehold,
-        cookingPreferences,
-        dietaryProfile,
-        shoppingPreferences: mergedShopping,
-        extra,
-      },
-      weeklyPlan,
-      pantrySnapshot: pantrySnapshot ?? [],
-      barSnapshot: barSnapshot ?? [],
-      currentMenusCount: Number(currentMenusCount ?? 0),
-      generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
-    };
   }
 
   async function start() {
@@ -235,16 +102,18 @@ export default function N8NGenerate({
     clearTimers();
 
     try {
-      const body = buildFinalBody();
-
-      // trigger n8n (via your API route that adds correlationId/callbackUrl)
+      // Hit our API route which forwards to n8n webhook and returns a correlationId
       const r = await postJSON<{ correlationId: string; status: string }>(
         '/api/n8n/trigger',
-        body
+        {
+          client,
+          // You can toggle these flags if needed later
+          generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
+        }
       );
-
       setCid(r.correlationId);
       setStatus('waiting');
+      // polling & safety timeout
       beginPolling(r.correlationId);
     } catch (e: any) {
       setError(e?.message || 'Failed to trigger workflow');
@@ -260,16 +129,24 @@ export default function N8NGenerate({
   }
 
   function beginPolling(correlationId: string) {
+    // poll every 2s
     pollTimer.current = setInterval(async () => {
       try {
         const res = await fetch(`/api/n8n/callback?cid=${encodeURIComponent(correlationId)}`, {
+          // prevent any caching weirdness on some CDNs
           cache: 'no-store',
         });
 
+        // Empty / non-JSON is fine during "not ready yet"
         const txt = await res.text();
         let data: any = null;
-        try { if (txt) data = JSON.parse(txt); } catch { data = null; }
+        try {
+          if (txt) data = JSON.parse(txt);
+        } catch {
+          data = null;
+        }
 
+        // We accept either a "done" status or a generic ok: true
         if (data && (data.status === 'done' || data.ok === true || data.result)) {
           setResult(data);
           setStatus('done');
@@ -277,10 +154,11 @@ export default function N8NGenerate({
           clearTimers();
         }
       } catch {
-        // ignore transient errors
+        // ignore transient poll errors
       }
     }, 2000);
 
+    // hard stop after 2 minutes
     timeoutTimer.current = setTimeout(() => {
       clearTimers();
       setLoading(false);
@@ -289,7 +167,10 @@ export default function N8NGenerate({
     }, 120000);
   }
 
-  useEffect(() => () => clearTimers(), []);
+  // cleanup on unmount
+  useEffect(() => {
+    return () => clearTimers();
+  }, []);
 
   const canTrigger = !loading;
 
