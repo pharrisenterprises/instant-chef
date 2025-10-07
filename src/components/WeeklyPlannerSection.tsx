@@ -2,17 +2,7 @@
 
 import { useState } from "react";
 import type { Profile, Weekly } from "@/lib/types";
-
-const N8N_URL = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL as string; // must be set on Vercel
-
-function readLS<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
+import N8NGenerate from "@/components/N8NGenerate";
 
 export default function WeeklyPlanner({
   profile,
@@ -23,7 +13,7 @@ export default function WeeklyPlanner({
   onHandPreview,
   setOnHandPreview,
   submitOnHandImage,
-  clearMenus, // pass from parent to wipe menus before generation
+  clearMenus, // (optional) if you want to clear menus before generation, hook it inside N8NGenerate start()
 }: {
   profile: Profile;
   weekly: Weekly;
@@ -35,167 +25,64 @@ export default function WeeklyPlanner({
   submitOnHandImage: () => void;
   clearMenus: () => void;
 }) {
-  const [working, setWorking] = useState(false);
+  // This local "working" state is no longer used to disable inputs during generation
+  // because N8NGenerate handles its own loading/polling state.
+  const [working] = useState(false);
 
+  // map stored weekly.budgetType ('none' | 'perWeek' | 'perMeal') to label used in the UI (not needed by N8NGenerate)
   function budgetTypeLabel(bt: Weekly["budgetType"]): "Per week ($)" | "Per meal ($)" | "none" {
     if (bt === "perWeek") return "Per week ($)";
     if (bt === "perMeal") return "Per meal ($)";
     return "none";
   }
 
-  const weeklyPlanner = {
-    portionsPerDinner: profile.portionDefault,
-    groceryStore: profile.store ?? "",
-    dinnersNeededThisWeek: weekly.dinners ?? 0,
-    budgetType: budgetTypeLabel(weekly.budgetType),
-    budgetValue: (weekly.budgetValue ?? "") as number | "",
-    weeklyOnHandText: weekly.onHandText ?? "",
-    weeklyMood: weekly.mood ?? "",
-    weeklyExtras: weekly.extras ?? "",
-  };
-
+  // Snapshots (if present on weekly from parent)
   const pantrySnapshot = (weekly as any)?.pantrySnapshot ?? [];
   const barSnapshot = (weekly as any)?.barSnapshot ?? [];
   const currentMenusCount = Number((weekly as any)?.currentMenusCount ?? 0);
 
-  async function onGenerateMenu() {
-    try {
-      if (!N8N_URL) {
-        alert("NEXT_PUBLIC_N8N_WEBHOOK_URL is not set on Vercel.");
-        return;
-      }
-
-      setWorking(true);
-      clearMenus();
-
-      // ---- Read Account Profile blocks from localStorage ----
-      type BasicInformation = {
-        firstName: string;
-        lastName: string;
-        email: string;
-        accountAddress: { street: string; city: string; state: string; zipcode: string };
-      };
-      type HouseholdSetup = {
-        adults: number;
-        teens: number;
-        children: number;
-        toddlersInfants: number;
-        portionsPerDinner: number;
-      };
-      type CookingPreferences = { cookingSkill: string; cookingTimePreference: string; equipment: string[] };
-      type DietaryProfile = {
-        allergiesRestrictions: string[];
-        dislikesAvoidList: string[];
-        dietaryPrograms: string[];
-        notes?: string;
-      };
-      type ShoppingPreferences = {
-        storesNearMe: string[];
-        preferredGroceryStore: string;
-        preferOrganic: string;
-        preferNationalBrands: string;
-      };
-
-      const basicInformation = readLS<BasicInformation>("ic_basic", {
-        firstName: "",
-        lastName: "",
-        email: "",
-        accountAddress: { street: "", city: "", state: "", zipcode: "" },
-      });
-
-      const householdSetup = readLS<HouseholdSetup>("ic_house", {
-        adults: 0,
-        teens: 0,
-        children: 0,
-        toddlersInfants: 0,
-        portionsPerDinner: weeklyPlanner.portionsPerDinner ?? 4,
-      });
-
-      const cookingPreferences = readLS<CookingPreferences>("ic_cook", {
-        cookingSkill: "Beginner",
-        cookingTimePreference: "30 min",
-        equipment: [],
-      });
-
-      const dietaryProfile = readLS<DietaryProfile>("ic_diet", {
-        allergiesRestrictions: [],
-        dislikesAvoidList: [],
-        dietaryPrograms: [],
-      });
-
-      const shoppingPreferences = readLS<ShoppingPreferences>("ic_shop", {
-        storesNearMe: [],
-        preferredGroceryStore: weeklyPlanner.groceryStore || "",
-        preferOrganic: "I dont care",
-        preferNationalBrands: "I dont care",
-      });
-
-      // ---- Normalize weekly for backend ----
-      const budgetTypeMap: Record<typeof weeklyPlanner.budgetType, "perWeek" | "perMeal" | "none"> = {
-        "Per week ($)": "perWeek",
-        "Per meal ($)": "perMeal",
-        none: "none",
-      };
-
-      const weeklyPlan = {
-        portionsPerDinner:
-          householdSetup.portionsPerDinner ?? weeklyPlanner.portionsPerDinner ?? 4,
-        groceryStore:
-          shoppingPreferences.preferredGroceryStore || weeklyPlanner.groceryStore || "",
-        dinnersThisWeek: weeklyPlanner.dinnersNeededThisWeek ?? 0,
-        budget: {
-          type: budgetTypeMap[weeklyPlanner.budgetType],
-          value: weeklyPlanner.budgetValue === "" ? undefined : Number(weeklyPlanner.budgetValue),
-        },
-        onHandCsv: weeklyPlanner.weeklyOnHandText?.trim() || "",
-        mood: weeklyPlanner.weeklyMood?.trim() || "",
-        extras: weeklyPlanner.weeklyExtras?.trim() || "",
-        ui: weeklyPlanner, // for visibility in n8n if you want to inspect
-      };
-
-      const payload = {
-        client: {
-          basicInformation,
-          householdSetup,
-          cookingPreferences,
-          dietaryProfile,
-          shoppingPreferences,
-        },
-        weeklyPlan,
-        pantrySnapshot,
-        barSnapshot,
-        currentMenusCount,
-        generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
-        // Optional meta—handy in n8n
-        source: "instant-chef-web",
-        at: new Date().toISOString(),
-      };
-
-      console.log("[WeeklyPlanner] → n8n", N8N_URL, payload);
-
-      // DIRECT POST TO N8N WEBHOOK (no API route)
-      const res = await fetch(N8N_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        mode: "cors", // n8n allows this
-        body: JSON.stringify(payload),
-      });
-
-      const text = await res.text().catch(() => "");
-      console.log("[WeeklyPlanner] n8n response", res.status, text);
-
-      if (!res.ok) {
-        throw new Error(`n8n rejected (${res.status}): ${text?.slice(0, 600)}`);
-      }
-
-      alert("n8n received the request.");
-    } catch (err: any) {
-      console.error("[WeeklyPlanner] ERROR:", err);
-      alert(err?.message || "Failed to POST to n8n.");
-    } finally {
-      setWorking(false);
-    }
-  }
+  // Build the client payload from your Profile page fields.
+  // N8NGenerate will merge this with any localStorage blocks too (ic_basic, ic_house, etc.).
+  const clientPayload = {
+    basicInformation: {
+      firstName: (profile as any)?.firstName ?? "",
+      lastName: (profile as any)?.lastName ?? "",
+      email: (profile as any)?.email ?? "",
+      accountAddress: {
+        street: (profile as any)?.street ?? "",
+        city: (profile as any)?.city ?? "",
+        state: (profile as any)?.state ?? "",
+        zipcode: (profile as any)?.zipcode ?? "",
+      },
+    },
+    householdSetup: {
+      adults: (profile as any)?.adults ?? 0,
+      teens: (profile as any)?.teens ?? 0,
+      children: (profile as any)?.children ?? 0,
+      toddlersInfants: (profile as any)?.toddlersInfants ?? 0,
+      portionsPerDinner: profile?.portionDefault ?? 4,
+      dinnersPerWeek: (weekly?.dinners as number) ?? undefined,
+    },
+    cookingPreferences: {
+      cookingSkill: (profile as any)?.cookingSkill ?? "Beginner",
+      cookingTimePreference: (profile as any)?.cookingTimePreference ?? "30 min",
+      equipment: (profile as any)?.equipment ?? [],
+    },
+    dietaryProfile: {
+      allergiesRestrictions: (profile as any)?.allergiesRestrictions ?? [],
+      dislikesAvoidList: (profile as any)?.dislikesAvoidList ?? [],
+      dietaryPrograms: (profile as any)?.dietaryPrograms ?? [],
+      notes: (profile as any)?.dietNotes ?? "",
+    },
+    shoppingPreferences: {
+      storesNearMe: (profile as any)?.storesNearMe ?? [],
+      preferredGroceryStore: profile?.store ?? "",
+      preferOrganic: (profile as any)?.preferOrganic ?? "I dont care",
+      preferNationalBrands: (profile as any)?.preferNationalBrands ?? "No preference",
+    },
+    // add anything else you want to carry through
+    extra: {},
+  };
 
   return (
     <div className="bg-white rounded-2xl shadow p-6">
@@ -364,14 +251,24 @@ export default function WeeklyPlanner({
         />
       </div>
 
+      {/* === This is the important bit: send everything to N8NGenerate === */}
       <div className="mt-6 flex justify-end">
-        <button
-          className={`px-5 py-2 rounded text-white ${working ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
-          onClick={onGenerateMenu}
-          disabled={working}
-        >
-          {working ? "Working…" : "Generate Menu"}
-        </button>
+        <N8NGenerate
+          client={clientPayload}
+          weekly={{
+            portionsPerDinner: profile.portionDefault,
+            groceryStore: profile.store,
+            dinners: weekly.dinners,
+            budgetType: weekly.budgetType,     // 'none' | 'perWeek' | 'perMeal' (component also accepts the label strings)
+            budgetValue: weekly.budgetValue,
+            onHandText: weekly.onHandText,
+            mood: weekly.mood,
+            extras: weekly.extras,
+          }}
+          pantrySnapshot={pantrySnapshot}
+          barSnapshot={barSnapshot}
+          currentMenusCount={currentMenusCount}
+        />
       </div>
     </div>
   );
