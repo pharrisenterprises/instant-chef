@@ -1,146 +1,55 @@
-// src/app/api/n8n/trigger/route.ts
-import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
+export const runtime = "nodejs";
 
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || '';
-
-export async function POST(request: Request) {
+/**
+ * POST /api/n8n/trigger
+ * Forwards payload to your n8n webhook and returns a correlationId we can poll with.
+ */
+export async function POST(req: NextRequest) {
   try {
-    if (!N8N_WEBHOOK_URL) {
-      return NextResponse.json(
-        { ok: false, error: 'N8N_WEBHOOK_URL is not set on the server.' },
-        { status: 500 }
-      );
+    const body = await req.json().catch(() => ({}));
+    const webhookUrl = process.env.N8N_WEBHOOK_URL;
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+
+    if (!webhookUrl) {
+      console.error("[trigger] N8N_WEBHOOK_URL missing");
+      return NextResponse.json({ error: "N8N_WEBHOOK_URL not set" }, { status: 500 });
+    }
+    if (!baseUrl) {
+      console.error("[trigger] NEXT_PUBLIC_BASE_URL missing");
+      return NextResponse.json({ error: "NEXT_PUBLIC_BASE_URL not set" }, { status: 500 });
     }
 
-    // Read current user (server-side cookies)
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    // unique correlation id for this run
+    const correlationId =
+      body?.correlationId ||
+      crypto.createHash("sha256").update(`${Date.now()}-${Math.random()}`).digest("hex").slice(0, 32);
 
-    if (!user) {
-      return NextResponse.json(
-        { ok: false, error: 'Not authenticated. Please log in and try again.' },
-        { status: 401 }
-      );
-    }
-
-    // Client payload (weekly planner + extras)
-    const weekly = await request.json().catch(() => ({} as any));
-
-    // Fetch profile to enrich the payload
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (profileError) {
-      console.warn('[n8n trigger] profile fetch error:', profileError);
-    }
-
-    // Build "client" block for n8n
-    const basicInformation = {
-      firstName: profile?.first_name ?? '',
-      lastName: profile?.last_name ?? '',
-      email: profile?.email ?? user.email ?? '',
-      accountAddress: {
-        street: profile?.account_street ?? '',
-        city: profile?.account_city ?? '',
-        state: profile?.account_state ?? '',
-        zipcode: profile?.account_zipcode ?? '',
-      },
+    const payload = {
+      correlationId,
+      callbackUrl: `${baseUrl}/api/n8n/callback?cid=${encodeURIComponent(correlationId)}`,
+      ...body,
     };
 
-    const householdSetup = {
-      adults: profile?.adults ?? 0,
-      teens: profile?.teens ?? 0,
-      children: profile?.children ?? 0,
-      toddlersInfants: profile?.toddlers ?? 0,
-      portionsPerDinner: profile?.portions_per_dinner ?? 4,
-      dinnersPerWeek: profile?.dinners_per_week ?? 3,
-    };
-
-    const cookingPreferences = {
-      cookingSkill: profile?.cooking_skill ?? 'Beginner',
-      cookingTimePreference: profile?.cooking_time ?? '30 min',
-      equipment: Array.isArray(profile?.equipment) ? profile.equipment : [],
-      otherEquipment: profile?.other_equipment ?? '',
-    };
-
-    const dietaryProfile = {
-      allergiesRestrictions: profile?.allergies
-        ? profile.allergies.split(',').map(s => s.trim()).filter(Boolean)
-        : [],
-      dislikesAvoidList: profile?.dislikes
-        ? profile.dislikes.split(',').map(s => s.trim()).filter(Boolean)
-        : [],
-      dietaryPrograms: profile?.dietary_programs
-        ? profile.dietary_programs.split(',').map(s => s.trim()).filter(Boolean)
-        : [],
-      macros: profile?.macros ?? '',
-    };
-
-    const shoppingPreferences = {
-      storesNearMe: profile?.stores_near_me
-        ? profile.stores_near_me.split(',').map(s => s.trim()).filter(Boolean)
-        : [],
-      preferredGroceryStore: profile?.preferred_store ?? '',
-      preferOrganic: profile?.organic_preference ?? 'Yes',
-      preferNationalBrands: profile?.brand_preference ?? 'Yes',
-    };
-
-    // Weekly planner (from client)
-    const weeklyPlanner = weekly?.weeklyPlanner ?? {};
-    const extra = {
-      weeklyPlanner,
-      weeklyMood: weekly?.extra?.weeklyMood ?? weeklyPlanner?.weeklyMood ?? '',
-      weeklyExtras: weekly?.extra?.weeklyExtras ?? weeklyPlanner?.weeklyExtras ?? '',
-      weeklyOnHandText: weekly?.extra?.weeklyOnHandText ?? weeklyPlanner?.weeklyOnHandText ?? '',
-      pantrySnapshot: weekly?.extra?.pantrySnapshot ?? [],
-      barSnapshot: weekly?.extra?.barSnapshot ?? [],
-      currentMenusCount: weekly?.extra?.currentMenusCount ?? 0,
-    };
-
-    const origin = new URL(request.url).origin;
-
-    const bodyForN8n = {
-      client: {
-        basicInformation,
-        householdSetup,
-        cookingPreferences,
-        dietaryProfile,
-        shoppingPreferences,
-        extra,
-      },
-      weeklyPlanner, // also at the top-level for convenience
-      generate: weekly?.generate ?? {
-        menus: true,
-        heroImages: true,
-        menuCards: true,
-        receipt: true,
-      },
-      correlationId: weekly?.correlationId ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`),
-      callbackUrl: `${origin}/api/n8n/callback`,
-    };
-
-    const resp = await fetch(N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(bodyForN8n),
+    const res = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
 
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      console.error('[n8n trigger] webhook failed', resp.status, text);
+    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      console.error("[trigger] n8n non-OK", res.status, text?.slice(0, 300));
       return NextResponse.json(
-        { ok: false, error: `n8n webhook failed (${resp.status})` },
+        { error: "n8n rejected", status: res.status, details: text?.slice(0, 300) ?? "" },
         { status: 502 }
       );
     }
 
-    return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    console.error('[n8n trigger] fatal', err);
-    return NextResponse.json({ ok: false, error: err?.message ?? 'Unknown error' }, { status: 500 });
+    return NextResponse.json({ correlationId, status: "accepted" }, { status: 202 });
+  } catch (e: any) {
+    console.error("[trigger] crash", e);
+    return NextResponse.json({ error: e?.message || "bad request" }, { status: 400 });
   }
 }
