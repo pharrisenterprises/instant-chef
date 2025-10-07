@@ -43,6 +43,7 @@ function AuthInner() {
         if (error) throw error;
         if (!data.session) { setLoading(false); return setErr('Please check your email to confirm.'); }
       }
+      await fetch('/api/mark-login', { method: 'POST' })
       router.push(next);
     } catch (e: any) {
       setErr(e.message ?? 'Something went wrong');

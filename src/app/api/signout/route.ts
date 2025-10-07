@@ -6,6 +6,11 @@ export async function POST(request: Request) {
   const supabase = createClient()
   await supabase.auth.signOut()
 
-  // Redirect back to same origin (safe on Vercel)
-  return NextResponse.redirect(new URL('/', request.url))
+  const url = new URL('/', request.url)
+  const res = NextResponse.redirect(url)
+
+  // Clear the 24h cookie
+  res.cookies.set('ic_logout_at', '', { path: '/', maxAge: 0 })
+
+  return res
 }
