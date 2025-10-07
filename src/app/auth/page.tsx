@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client';
 export const dynamic = 'force-dynamic';
 
 export default function AuthPage() {
-  // Wrap any useSearchParams usage in Suspense
   return (
     <Suspense fallback={<div className="min-h-screen grid place-items-center text-gray-500">Loading…</div>}>
       <AuthInner />
@@ -22,6 +21,7 @@ function AuthInner() {
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const router = useRouter();
   const next = useSearchParams().get('next') || '/account';
@@ -29,7 +29,7 @@ function AuthInner() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true); setErr(null);
+    setLoading(true); setErr(null); setNotice(null);
     try {
       if (mode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -41,14 +41,35 @@ function AuthInner() {
           options: { data: { full_name: fullName } },
         });
         if (error) throw error;
-        if (!data.session) { setLoading(false); return setErr('Please check your email to confirm.'); }
+        if (!data.session) { setLoading(false); return setNotice('Check your email to confirm your account.'); }
       }
-      await fetch('/api/mark-login', { method: 'POST' })
+
+      // mark login window (your 24h feature)
+      await fetch('/api/mark-login', { method: 'POST' });
+
       router.push(next);
     } catch (e: any) {
       setErr(e.message ?? 'Something went wrong');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    setErr(null); setNotice(null);
+
+    if (!email) {
+      setErr('Enter your email above, then click “Forgot password?”.');
+      return;
+    }
+    try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const redirectTo = `${origin}/auth/reset`; // <-- we’ll build this page next
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) throw error;
+      setNotice('Password reset email sent. Check your inbox.');
+    } catch (e: any) {
+      setErr(e.message ?? 'Could not send reset email.');
     }
   }
 
@@ -82,10 +103,23 @@ function AuthInner() {
           <div>
             <label className="block text-sm mb-1">Password</label>
             <input type="password" className="w-full rounded-lg border px-3 py-2"
-                   value={password} onChange={(e)=>setPassword(e.target.value)} required />
+                   value={password} onChange={(e)=>setPassword(e.target.value)} required={mode==='login' || mode==='signup'} />
           </div>
 
+          {mode === 'login' && (
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-sm text-emerald-700 hover:underline"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
           {err && <p className="text-sm text-red-600">{err}</p>}
+          {notice && <p className="text-sm text-emerald-700">{notice}</p>}
 
           <button type="submit" disabled={loading}
             className="w-full rounded-lg bg-emerald-600 text-white py-2 font-medium disabled:opacity-50">
