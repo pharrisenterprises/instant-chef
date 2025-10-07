@@ -12,7 +12,7 @@ export default function WeeklyPlanner({
   onHandPreview,
   setOnHandPreview,
   submitOnHandImage,
-  clearMenus,      // <— add this prop to wipe menus before generation
+  clearMenus,      // pass from parent to wipe menus before generation
 }: {
   profile: Profile;
   weekly: Weekly;
@@ -207,7 +207,7 @@ export default function WeeklyPlanner({
           pantrySnapshot={pantrySnapshot}
           barSnapshot={barSnapshot}
           currentMenusCount={currentMenusCount}
-          onStart={clearMenus}  // empty the Menus section immediately
+          onStart={clearMenus}  // this empties the Menus section immediately
         />
       </div>
     </div>

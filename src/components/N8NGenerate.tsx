@@ -30,7 +30,7 @@ export default function N8NGenerate({
   pantrySnapshot,
   barSnapshot,
   currentMenusCount,
-  onStart,   // optional: to clear UI before generation
+  onStart,   // clear menus before run
 }: {
   weeklyPlanner: WeeklyPlanner;
   pantrySnapshot: SnapshotItem[];
@@ -72,10 +72,13 @@ export default function N8NGenerate({
       });
 
       const body = await res.json().catch(() => ({} as any));
+      console.log('[Generate] /api/n8n/trigger status:', res.status, body);
+
       if (!res.ok) {
         alert(body?.error ?? `Request failed (${res.status})`);
         return;
       }
+
       alert('Got it! Generating your menu…');
     } catch (err: any) {
       console.error('Generate error', err);
