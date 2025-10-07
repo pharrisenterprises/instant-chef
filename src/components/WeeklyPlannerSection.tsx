@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
-import type { Profile, Weekly } from '@/lib/types'
-import N8NGenerate from '@/components/N8NGenerate'
+import type { Profile, Weekly } from '@/lib/types';
+import N8NGenerate from '@/components/N8NGenerate';
 
 export default function WeeklyPlanner({
   profile,
@@ -13,23 +13,21 @@ export default function WeeklyPlanner({
   setOnHandPreview,
   submitOnHandImage,
 }: {
-  profile: Profile
-  weekly: Weekly
-  setProfile: (p: Profile) => void
-  setWeekly: (w: Weekly) => void
-  handleImageToDataUrl: (file: File, setter: (v?: string) => void) => void
-  onHandPreview?: string
-  setOnHandPreview: (v?: string) => void
-  submitOnHandImage: () => void
+  profile: Profile;
+  weekly: Weekly;
+  setProfile: (p: Profile) => void;
+  setWeekly: (w: Weekly) => void;
+  handleImageToDataUrl: (file: File, setter: (v?: string) => void) => void;
+  onHandPreview?: string;
+  setOnHandPreview: (v?: string) => void;
+  submitOnHandImage: () => void;
 }) {
-  // Map your Weekly.budgetType to human label for n8n
   function budgetTypeLabel(bt: Weekly['budgetType']): 'Per week ($)' | 'Per meal ($)' | 'none' {
-    if (bt === 'perWeek') return 'Per week ($)'
-    if (bt === 'perMeal') return 'Per meal ($)'
-    return 'none'
+    if (bt === 'perWeek') return 'Per week ($)';
+    if (bt === 'perMeal') return 'Per meal ($)';
+    return 'none';
   }
 
-  // Build the planner object from current state (dynamic)
   const weeklyPlanner = {
     portionsPerDinner: profile.portionDefault,
     groceryStore: profile.store ?? '',
@@ -39,23 +37,26 @@ export default function WeeklyPlanner({
     weeklyOnHandText: weekly.onHandText ?? '',
     weeklyMood: weekly.mood ?? '',
     weeklyExtras: weekly.extras ?? '',
-  }
+  };
 
-  // If you track these elsewhere, replace with your actual sources
-  const pantrySnapshot = (weekly as any)?.pantrySnapshot ?? []
-  const barSnapshot = (weekly as any)?.barSnapshot ?? []
-  const currentMenusCount = Number((weekly as any)?.currentMenusCount ?? 0)
+  // If you track these elsewhere, replace with real sources
+  const pantrySnapshot = (weekly as any)?.pantrySnapshot ?? [];
+  const barSnapshot = (weekly as any)?.barSnapshot ?? [];
+  const currentMenusCount = Number((weekly as any)?.currentMenusCount ?? 0);
 
   return (
     <div className="bg-white rounded-2xl shadow p-6">
       <h2 className="text-xl font-bold mb-4">Weekly Menu Planning</h2>
+
       <div className="grid md:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium">Portions per Dinner</label>
           <div className="flex items-center gap-2 mt-1">
             <button
               className="px-2 py-1 border rounded"
-              onClick={() => setProfile({ ...profile, portionDefault: Math.max(1, profile.portionDefault - 1) })}
+              onClick={() =>
+                setProfile({ ...profile, portionDefault: Math.max(1, profile.portionDefault - 1) })
+              }
             >
               -
             </button>
@@ -63,7 +64,9 @@ export default function WeeklyPlanner({
               type="number"
               className="w-20 border rounded px-2 py-1 text-center"
               value={profile.portionDefault}
-              onChange={(e) => setProfile({ ...profile, portionDefault: Math.max(1, +e.target.value) })}
+              onChange={(e) =>
+                setProfile({ ...profile, portionDefault: Math.max(1, +e.target.value) })
+              }
             />
             <button
               className="px-2 py-1 border rounded"
@@ -150,16 +153,26 @@ export default function WeeklyPlanner({
               capture="environment"
               className="hidden"
               onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) handleImageToDataUrl(file, setOnHandPreview)
+                const file = e.target.files?.[0];
+                if (file) handleImageToDataUrl(file, setOnHandPreview);
               }}
             />
           </label>
           {onHandPreview && (
             <div className="flex items-center gap-3">
-              <img src={onHandPreview} alt="On hand preview" width="64" height="64" className="rounded object-cover" />
-              <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage}>Submit</button>
-              <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)}>Retake</button>
+              <img
+                src={onHandPreview}
+                alt="On hand preview"
+                width="64"
+                height="64"
+                className="rounded object-cover"
+              />
+              <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage}>
+                Submit
+              </button>
+              <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)}>
+                Retake
+              </button>
             </div>
           )}
         </div>
@@ -188,7 +201,7 @@ export default function WeeklyPlanner({
       </div>
 
       <div className="mt-6 flex justify-end">
-        {/* NEW: calls /api/n8n/trigger with weeklyPlanner + snapshots */}
+        {/* ONLY ONE BUTTON NOW */}
         <N8NGenerate
           weeklyPlanner={weeklyPlanner}
           pantrySnapshot={pantrySnapshot}
@@ -197,5 +210,5 @@ export default function WeeklyPlanner({
         />
       </div>
     </div>
-  )
+  );
 }
