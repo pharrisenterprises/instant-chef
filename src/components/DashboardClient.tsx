@@ -168,6 +168,15 @@ export default function DashboardClient() {
       generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
     };
 
+    console.log("💾 SUPABASE PROFILE DATA", {
+      profile,
+      household,
+      cookingPrefs,
+      dietary,
+      shopping,
+    });
+
+
     console.log("🔥 Sending to /api/n8n/trigger", payload);
 
     const res = await fetch("/api/n8n/trigger", {
