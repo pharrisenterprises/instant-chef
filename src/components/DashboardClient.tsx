@@ -8,26 +8,49 @@ import PantrySection from "@/components/PantrySection";
 import BarSection from "@/components/BarSection";
 import type { PantryItem, BarItem, MenuItem } from "@/lib/types";
 
+/* ---------- Types ---------- */
 type BasicInformation = {
   firstName: string;
   lastName: string;
   email: string;
   accountAddress: { street: string; city: string; state: string; zipcode: string };
 };
-type HouseholdSetup = { adults: number; teens: number; children: number; toddlersInfants: number; portionsPerDinner: number };
-type CookingPreferences = { cookingSkill: string; cookingTimePreference: string; equipment: string[] };
-type DietaryProfile = { allergiesRestrictions: string[]; dislikesAvoidList: string[]; dietaryPrograms: string[]; notes?: string };
-type ShoppingPreferences = { storesNearMe: string[]; preferredGroceryStore: string; preferOrganic: string; preferNationalBrands: string };
+type HouseholdSetup = {
+  adults: number;
+  teens: number;
+  children: number;
+  toddlersInfants: number;
+  portionsPerDinner: number;
+};
+type CookingPreferences = {
+  cookingSkill: string;
+  cookingTimePreference: string;
+  equipment: string[];
+};
+type DietaryProfile = {
+  allergiesRestrictions: string[];
+  dislikesAvoidList: string[];
+  dietaryPrograms: string[];
+  notes?: string;
+};
+type ShoppingPreferences = {
+  storesNearMe: string[];
+  preferredGroceryStore: string;
+  preferOrganic: string;
+  preferNationalBrands: string;
+};
 
-function readLS<T>(k: string, def: T): T {
+/* ---------- Local Storage Helper ---------- */
+function readLS<T>(key: string, fallback: T): T {
   try {
-    const v = localStorage.getItem(k);
-    return v ? (JSON.parse(v) as T) : def;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
-    return def;
+    return fallback;
   }
 }
 
+/* ---------- Component ---------- */
 export default function DashboardClient() {
   const [pantry, setPantry] = useState<PantryItem[]>([]);
   const [bar, setBar] = useState<BarItem[]>([]);
@@ -49,6 +72,7 @@ export default function DashboardClient() {
     extras: "",
   });
 
+  /* ---------- Hydrate pantry & bar ---------- */
   useEffect(() => {
     const storedPantry = localStorage.getItem("ic_pantry");
     if (storedPantry) setPantry(JSON.parse(storedPantry));
@@ -56,8 +80,9 @@ export default function DashboardClient() {
     if (storedBar) setBar(JSON.parse(storedBar));
   }, []);
 
+  /* ---------- Generate Menus (send to N8N) ---------- */
   async function generateMenus() {
-    // Build the client payload from Account/Profile wizard keys
+    // Load persisted profile blocks
     const basicInformation = readLS<BasicInformation>("ic_basic", {
       firstName: "",
       lastName: "",
@@ -88,40 +113,63 @@ export default function DashboardClient() {
       preferNationalBrands: "I dont care",
     });
 
-    // Weekly planner block
+    // Merge runtime weekly UI
     const weeklyPlan = {
+      dinnersThisWeek: weekly.dinners,
       portionsPerDinner: householdSetup.portionsPerDinner ?? profile.portionDefault ?? 4,
       groceryStore: shoppingPreferences.preferredGroceryStore || profile.store || "",
-      dinnersThisWeek: weekly.dinners,
       budget: {
-        type: weekly.budgetType, // perWeek | perMeal | none
+        type: weekly.budgetType ?? "none",
         value: weekly.budgetValue || undefined,
       },
       onHandCsv: weekly.onHandCsv?.trim() || "",
       mood: weekly.mood?.trim() || "",
       extras: weekly.extras?.trim() || "",
+      ui: weekly,
     };
 
-    // Snapshots
-    const pantrySnapshot = (pantry || []).map(p => ({ name: p.name, qty: p.qty }));
-    const barSnapshot = (bar || []).map(b => ({ name: b.name, qty: b.qty }));
+    // Pantry / Bar Snapshots
+    const pantrySnapshot = (pantry || []).map((p) => ({
+      name: p.name,
+      qty: p.qty,
+      measure: p.measure,
+    }));
+    const barSnapshot = (bar || []).map((b) => ({
+      name: b.name,
+      qty: b.qty,
+      measure: b.measure,
+    }));
 
-    const payload = {
-      client: {
-        basicInformation,
-        householdSetup,
-        cookingPreferences,
-        dietaryProfile,
-        shoppingPreferences,
+    // Combine everything into client object
+    const client = {
+      basicInformation,
+      householdSetup,
+      cookingPreferences,
+      dietaryProfile,
+      shoppingPreferences,
+      extra: {
+        weeklyMood: weekly.mood,
+        weeklyExtras: weekly.extras,
+        weeklyOnHandText: weekly.onHandCsv,
+        pantrySnapshot,
+        barSnapshot,
+        currentMenusCount: menus?.length ?? 0,
       },
+    };
+
+    // Final payload
+    const payload = {
+      client,
       weeklyPlan,
       pantrySnapshot,
       barSnapshot,
-      cartSnapshot: cart ?? [],
+      currentMenusCount: menus?.length ?? 0,
       generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
     };
 
-    // Fire n8n
+    console.log("Sending payload → /api/n8n/trigger", payload);
+
+    // Send to API route that forwards to n8n
     const res = await fetch("/api/n8n/trigger", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -135,19 +183,24 @@ export default function DashboardClient() {
     }
 
     const { correlationId } = (await res.json()) as { correlationId: string };
-    // Optional: simple poll until done; you already have UI for results elsewhere
+    console.log("✅ n8n workflow started:", correlationId);
+
+    // Optional: Poll for results
     const interval = setInterval(async () => {
-      const r = await fetch(`/api/n8n/callback?cid=${encodeURIComponent(correlationId)}`, { cache: "no-store" });
-      if (r.status === 204) return; // not ready
+      const r = await fetch(`/api/n8n/callback?cid=${encodeURIComponent(correlationId)}`, {
+        cache: "no-store",
+      });
+      if (r.status === 204) return; // Not ready yet
       const data = await r.json().catch(() => null);
       if (data?.status === "done") {
         clearInterval(interval);
-        // You can route this data into MenuCards, etc.
-        console.log("n8n result", data);
+        console.log("✅ n8n result received:", data);
+        // You can setMenus(data.result.menus) here if needed
       }
     }, 2000);
   }
 
+  /* ---------- UI ---------- */
   return (
     <div className="space-y-8">
       <WeeklyPlanner
@@ -171,8 +224,13 @@ export default function DashboardClient() {
       <ShoppingCart cart={cart} setCart={setCart} />
       <PantrySection pantry={pantry} setPantry={setPantry} />
       <BarSection bar={bar} setBar={setBar} />
-      {/* MenuCards can be fed once n8n returns structured menu data */}
-      <MenuCards menus={menus} approvedMenus={approvedMenus} setApprovedMenus={setApprovedMenus} />
+
+      {/* Menu cards will be populated after n8n callback */}
+      <MenuCards
+        menus={menus}
+        approvedMenus={approvedMenus}
+        setApprovedMenus={setApprovedMenus}
+      />
     </div>
   );
 }
