@@ -140,8 +140,7 @@ export default function WeeklyPlannerSection(props: WeeklyPlannerProps) {
       <div>
         <button
           onClick={generateMenus}
-          className="px-4 py-2 rounded bg-emerald-600 text-white"
-        >
+          className="px-4 py-2 rounded bg-emerald-600 text-white">
           Generate Menu
         </button>
       </div>
