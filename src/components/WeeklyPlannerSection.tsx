@@ -3,9 +3,6 @@
 import { useState } from "react";
 import type { Profile, Weekly } from "@/lib/types";
 
-/**
- * Small helper to safely read JSON from localStorage.
- */
 function readLS<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -36,7 +33,7 @@ export default function WeeklyPlanner({
   submitOnHandImage: () => void;
   clearMenus: () => void;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [working, setWorking] = useState(false);
 
   function budgetTypeLabel(bt: Weekly["budgetType"]): "Per week ($)" | "Per meal ($)" | "none" {
     if (bt === "perWeek") return "Per week ($)";
@@ -44,7 +41,6 @@ export default function WeeklyPlanner({
     return "none";
   }
 
-  // This mirrors the object you were passing into N8NGenerate for UI display
   const weeklyPlanner = {
     portionsPerDinner: profile.portionDefault,
     groceryStore: profile.store ?? "",
@@ -56,24 +52,16 @@ export default function WeeklyPlanner({
     weeklyExtras: weekly.extras ?? "",
   };
 
-  // Snapshots previously threaded through Weekly via parent
   const pantrySnapshot = (weekly as any)?.pantrySnapshot ?? [];
   const barSnapshot = (weekly as any)?.barSnapshot ?? [];
   const currentMenusCount = Number((weekly as any)?.currentMenusCount ?? 0);
 
-  /**
-   * Build a consolidated payload from:
-   * - Account Profile (localStorage keys saved by your profile flow)
-   * - Weekly Planner (this component)
-   * - Pantry / Bar snapshots
-   * Then POST to /api/n8n/trigger to kick off the workflow.
-   */
   async function onGenerateMenu() {
     try {
-      setLoading(true);
-      clearMenus(); // immediately wipe any old menus in the UI
+      setWorking(true);
+      clearMenus();
 
-      // ---- Account Profile blocks saved earlier in localStorage ----
+      // ---- Read Account Profile blocks from localStorage ----
       type BasicInformation = {
         firstName: string;
         lastName: string;
@@ -113,7 +101,7 @@ export default function WeeklyPlanner({
         teens: 0,
         children: 0,
         toddlersInfants: 0,
-        portionsPerDinner: profile.portionDefault ?? 4,
+        portionsPerDinner: weeklyPlanner.portionsPerDinner ?? 4,
       });
 
       const cookingPreferences = readLS<CookingPreferences>("ic_cook", {
@@ -130,30 +118,35 @@ export default function WeeklyPlanner({
 
       const shoppingPreferences = readLS<ShoppingPreferences>("ic_shop", {
         storesNearMe: [],
-        preferredGroceryStore: profile.store || "",
+        preferredGroceryStore: weeklyPlanner.groceryStore || "",
         preferOrganic: "I dont care",
         preferNationalBrands: "I dont care",
       });
 
-      // ---- Weekly planner normalized block for n8n ----
+      // ---- Normalize weekly for backend ----
+      const budgetTypeMap: Record<typeof weeklyPlanner.budgetType, "perWeek" | "perMeal" | "none"> = {
+        "Per week ($)": "perWeek",
+        "Per meal ($)": "perMeal",
+        none: "none",
+      };
+
       const weeklyPlan = {
         portionsPerDinner:
-          householdSetup.portionsPerDinner ?? profile.portionDefault ?? weeklyPlanner.portionsPerDinner ?? 4,
-        groceryStore: shoppingPreferences.preferredGroceryStore || profile.store || "",
-        dinnersThisWeek: weekly.dinners ?? 0,
+          householdSetup.portionsPerDinner ?? weeklyPlanner.portionsPerDinner ?? 4,
+        groceryStore:
+          shoppingPreferences.preferredGroceryStore || weeklyPlanner.groceryStore || "",
+        dinnersThisWeek: weeklyPlanner.dinnersNeededThisWeek ?? 0,
         budget: {
-          type: weekly.budgetType, // 'perWeek' | 'perMeal' | 'none'
-          value: weekly.budgetValue ?? undefined,
+          type: budgetTypeMap[weeklyPlanner.budgetType],
+          value: weeklyPlanner.budgetValue === "" ? undefined : Number(weeklyPlanner.budgetValue),
         },
-        onHandCsv: weekly.onHandText?.trim() || "",
-        mood: weekly.mood?.trim() || "",
-        extras: weekly.extras?.trim() || "",
-        // optional debug / ui mirrors:
+        onHandCsv: weeklyPlanner.weeklyOnHandText?.trim() || "",
+        mood: weeklyPlanner.weeklyMood?.trim() || "",
+        extras: weeklyPlanner.weeklyExtras?.trim() || "",
         ui: weeklyPlanner,
       };
 
-      // ---- Inventory / extras snapshots ----
-      const payload = {
+      const body = {
         client: {
           basicInformation,
           householdSetup,
@@ -165,30 +158,36 @@ export default function WeeklyPlanner({
         pantrySnapshot,
         barSnapshot,
         currentMenusCount,
-        // downstream flags so n8n knows what to produce
         generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
       };
+
+      console.log("[WeeklyPlanner] POST /api/n8n/trigger →", body);
 
       const res = await fetch("/api/n8n/trigger", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
 
+      const raw = await res.text().catch(() => "");
+      let json: any = null;
+      try { json = raw ? JSON.parse(raw) : null; } catch {}
+
+      console.log("[WeeklyPlanner] /api/n8n/trigger response", res.status, json || raw);
+
       if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`n8n trigger failed (${res.status}): ${t.slice(0, 300)}`);
+        const msg =
+          json?.error || json?.details || raw || `Trigger failed with HTTP ${res.status}`;
+        throw new Error(msg);
       }
 
-      // If you want to react to the correlationId here, you can:
-      // const { correlationId } = await res.json();
-
-      // UI can optionally show a toast; polling is done elsewhere if needed.
+      if (json?.correlationId) console.log("[WeeklyPlanner] correlationId:", json.correlationId);
+      alert("n8n trigger accepted.");
     } catch (err: any) {
-      console.error("Generate Menu error:", err);
-      alert(err?.message || "Failed to generate menu.");
+      console.error("[WeeklyPlanner] ERROR:", err);
+      alert(err?.message || "Failed to trigger n8n. See console for details.");
     } finally {
-      setLoading(false);
+      setWorking(false);
     }
   }
 
@@ -199,13 +198,13 @@ export default function WeeklyPlanner({
       <div className="grid md:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium">Portions per Dinner</label>
-          <div className="flex items-center gap-2 mt-1">
+        <div className="flex items-center gap-2 mt-1">
             <button
               className="px-2 py-1 border rounded"
               onClick={() =>
                 setProfile({ ...profile, portionDefault: Math.max(1, profile.portionDefault - 1) })
               }
-              disabled={loading}
+              disabled={working}
             >
               -
             </button>
@@ -216,12 +215,12 @@ export default function WeeklyPlanner({
               onChange={(e) =>
                 setProfile({ ...profile, portionDefault: Math.max(1, +e.target.value) })
               }
-              disabled={loading}
+              disabled={working}
             />
             <button
               className="px-2 py-1 border rounded"
               onClick={() => setProfile({ ...profile, portionDefault: profile.portionDefault + 1 })}
-              disabled={loading}
+              disabled={working}
             >
               +
             </button>
@@ -235,7 +234,7 @@ export default function WeeklyPlanner({
             value={profile.store}
             onChange={(e) => setProfile({ ...profile, store: e.target.value })}
             placeholder="e.g., Kroger"
-            disabled={loading}
+            disabled={working}
           />
         </div>
 
@@ -246,7 +245,7 @@ export default function WeeklyPlanner({
             className="w-full border rounded px-3 py-2 mt-1"
             value={weekly.dinners}
             onChange={(e) => setWeekly({ ...weekly, dinners: Math.max(1, +e.target.value) })}
-            disabled={loading}
+            disabled={working}
           />
         </div>
       </div>
@@ -258,7 +257,7 @@ export default function WeeklyPlanner({
             className="w-full border rounded px-3 py-2 mt-1"
             value={weekly.budgetType}
             onChange={(e) => setWeekly({ ...weekly, budgetType: e.target.value as Weekly["budgetType"] })}
-            disabled={loading}
+            disabled={working}
           >
             <option value="none">No budget</option>
             <option value="perWeek">Per week ($)</option>
@@ -266,7 +265,7 @@ export default function WeeklyPlanner({
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium">Budget Value</label>
+          <label className="block text sm font-medium">Budget Value</label>
           <input
             type="number"
             className="w-full border rounded px-3 py-2 mt-1"
@@ -278,7 +277,7 @@ export default function WeeklyPlanner({
               })
             }
             placeholder="e.g., 150"
-            disabled={loading}
+            disabled={working}
           />
         </div>
         <div className="flex items-end">
@@ -291,15 +290,14 @@ export default function WeeklyPlanner({
           Do you have any ingredients on hand that you would like us to use in menu planning for this week?
         </label>
         <p className="text-xs text-gray-600">
-          (please list items with quantity included — separated by commas: e.g. 4 roma tomatoes, 2 lb boneless
-          chicken thighs, 3 bell peppers, 4 oz truffle oil)
+          (please list items with quantity included — separated by commas: e.g. 4 roma tomatoes, 2 lb boneless chicken thighs, 3 bell peppers, 4 oz truffle oil)
         </p>
         <textarea
           className="w-full border rounded px-3 py-2 mt-1"
           rows={3}
           value={weekly.onHandText}
           onChange={(e) => setWeekly({ ...weekly, onHandText: e.target.value })}
-          disabled={loading}
+          disabled={working}
         />
         <div className="flex items-center gap-3 mt-2">
           <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50">
@@ -313,7 +311,7 @@ export default function WeeklyPlanner({
                 const file = e.target.files?.[0];
                 if (file) handleImageToDataUrl(file, setOnHandPreview);
               }}
-              disabled={loading}
+              disabled={working}
             />
           </label>
           {onHandPreview && (
@@ -325,10 +323,10 @@ export default function WeeklyPlanner({
                 height="64"
                 className="rounded object-cover"
               />
-              <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage} disabled={loading}>
+              <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage} disabled={working}>
                 Submit
               </button>
-              <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)} disabled={loading}>
+              <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)} disabled={working}>
                 Retake
               </button>
             </div>
@@ -344,7 +342,7 @@ export default function WeeklyPlanner({
           className="w-full border rounded px-3 py-2 mt-1"
           value={weekly.mood}
           onChange={(e) => setWeekly({ ...weekly, mood: e.target.value })}
-          disabled={loading}
+          disabled={working}
         />
       </div>
 
@@ -356,18 +354,17 @@ export default function WeeklyPlanner({
           className="w-full border rounded px-3 py-2 mt-1"
           value={weekly.extras}
           onChange={(e) => setWeekly({ ...weekly, extras: e.target.value })}
-          disabled={loading}
+          disabled={working}
         />
       </div>
 
       <div className="mt-6 flex justify-end">
         <button
-          className={`px-5 py-2 rounded text-white ${loading ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
+          className={`px-5 py-2 rounded text-white ${working ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
           onClick={onGenerateMenu}
-          disabled={loading}
-          title="Generate Menu"
+          disabled={working}
         >
-          {loading ? "Generating…" : "Generate Menu"}
+          {working ? "Working…" : "Generate Menu"}
         </button>
       </div>
     </div>

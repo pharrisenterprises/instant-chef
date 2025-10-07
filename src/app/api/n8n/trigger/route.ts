@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic"; // <- prevent caching on Vercel
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {

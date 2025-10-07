@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic"; // <- prevent caching on Vercel
+export const dynamic = "force-dynamic";
 
 const STORE = globalThis as unknown as { __IC_RESULTS?: Map<string, any> };
 if (!STORE.__IC_RESULTS) STORE.__IC_RESULTS = new Map<string, any>();
