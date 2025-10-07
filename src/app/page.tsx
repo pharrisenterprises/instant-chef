@@ -33,11 +33,19 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <nav className="space-x-6 text-sm font-medium">
+          <nav className="flex items-center space-x-6 text-sm font-medium">
             <a href="#how-it-works" className="hover:underline">How It Works</a>
             <a href="#menu-library" className="hover:underline">Menu</a>
             <a href="#partnerships" className="hover:underline">Partners</a>
             <a href="#advantage" className="hover:underline">Why Us</a>
+
+            {/* NEW: Log in button */}
+            <Link
+              href="/auth"
+              className="ml-2 inline-flex items-center rounded-full bg-emerald-600 px-4 py-2 text-white font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              Log in
+            </Link>
           </nav>
         </div>
       </header>
