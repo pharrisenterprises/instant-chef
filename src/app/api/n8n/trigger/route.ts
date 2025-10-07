@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL! // set in Vercel settings
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || '' // set in Vercel settings
 
 export async function POST(request: Request) {
   try {
@@ -12,16 +12,20 @@ export async function POST(request: Request) {
 
     // Supabase (server) – read user from cookies
     const supabase = createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 })
     }
 
-    // Weekly planner payload from the client (anything you send from N8NGenerate.tsx)
-    const weekly = await request.json().catch(() => ({}))
+    // Weekly planner payload from the client (sent by N8NGenerate.tsx)
+    // Expecting shape:
+    // {
+    //   weeklyPlanner: { portionsPerDinner, groceryStore, dinnersNeededThisWeek, budgetType, budgetValue, weeklyOnHandText, weeklyMood, weeklyExtras },
+    //   extra: { pantrySnapshot, barSnapshot, currentMenusCount, weeklyMood, weeklyExtras, weeklyOnHandText },
+    //   generate: {...},
+    //   correlationId: '...'
+    // }
+    const weekly = await request.json().catch(() => ({} as any))
 
     // Pull the user profile
     const { data: profile, error: profileError } = await supabase
@@ -62,7 +66,7 @@ export async function POST(request: Request) {
     const cookingPreferences = {
       cookingSkill: profile?.cooking_skill ?? 'Beginner',
       cookingTimePreference: profile?.cooking_time ?? '30 min',
-      equipment: Array.isArray(profile?.equipment) ? profile?.equipment : [],
+      equipment: Array.isArray(profile?.equipment) ? profile.equipment : [],
       otherEquipment: profile?.other_equipment ?? '',
     }
 
@@ -98,8 +102,17 @@ export async function POST(request: Request) {
         cookingPreferences,
         dietaryProfile,
         shoppingPreferences,
-        // merge anything the planner sent (mood, pantrySnapshot, barSnapshot, etc.)
-        extra: weekly?.extra ?? {},
+        extra: {
+          // ⬇️ Include the entire Weekly Menu Planning block
+          weeklyPlanner: weekly?.weeklyPlanner ?? {},
+          // Keep existing extras (snapshots, mood, etc.)
+          weeklyMood: weekly?.extra?.weeklyMood ?? weekly?.weeklyPlanner?.weeklyMood ?? '',
+          weeklyExtras: weekly?.extra?.weeklyExtras ?? weekly?.weeklyPlanner?.weeklyExtras ?? '',
+          weeklyOnHandText: weekly?.extra?.weeklyOnHandText ?? weekly?.weeklyPlanner?.weeklyOnHandText ?? '',
+          pantrySnapshot: weekly?.extra?.pantrySnapshot ?? [],
+          barSnapshot: weekly?.extra?.barSnapshot ?? [],
+          currentMenusCount: weekly?.extra?.currentMenusCount ?? 0,
+        },
       },
       // pass through "generate" options if the planner sends them, else defaults
       generate: weekly?.generate ?? {
@@ -108,7 +121,7 @@ export async function POST(request: Request) {
         menuCards: true,
         receipt: true,
       },
-      correlationId: weekly?.correlationId ?? crypto.randomUUID(),
+      correlationId: weekly?.correlationId ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`),
       callbackUrl: `${origin}/api/n8n/callback`,
     }
 
