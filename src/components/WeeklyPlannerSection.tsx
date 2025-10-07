@@ -1,8 +1,7 @@
-"use client"
-  
-import { useState } from 'react'
-import type { Profile, Weekly, Measure } from '@/lib/types'
-import N8NGenerate from '@/components/N8NGenerate'
+"use client";
+
+import type { Profile, Weekly } from '@/lib/types';
+import N8NGenerate from '@/components/N8NGenerate';
 
 export default function WeeklyPlanner({
   profile,
@@ -13,17 +12,39 @@ export default function WeeklyPlanner({
   onHandPreview,
   setOnHandPreview,
   submitOnHandImage,
+  clearMenus,      // <— add this prop to wipe menus before generation
 }: {
-  profile: Profile
-  weekly: Weekly
-  setProfile: (p: Profile) => void
-  setWeekly: (w: Weekly) => void
-  handleImageToDataUrl: (file: File, setter: (v?: string) => void) => void
-  onHandPreview?: string
-  setOnHandPreview: (v?: string) => void
-  submitOnHandImage: () => void
-  generateMenus: () => void
+  profile: Profile;
+  weekly: Weekly;
+  setProfile: (p: Profile) => void;
+  setWeekly: (w: Weekly) => void;
+  handleImageToDataUrl: (file: File, setter: (v?: string) => void) => void;
+  onHandPreview?: string;
+  setOnHandPreview: (v?: string) => void;
+  submitOnHandImage: () => void;
+  clearMenus: () => void;
 }) {
+  function budgetTypeLabel(bt: Weekly['budgetType']): 'Per week ($)' | 'Per meal ($)' | 'none' {
+    if (bt === 'perWeek') return 'Per week ($)';
+    if (bt === 'perMeal') return 'Per meal ($)';
+    return 'none';
+  }
+
+  const weeklyPlanner = {
+    portionsPerDinner: profile.portionDefault,
+    groceryStore: profile.store ?? '',
+    dinnersNeededThisWeek: weekly.dinners ?? 0,
+    budgetType: budgetTypeLabel(weekly.budgetType),
+    budgetValue: (weekly.budgetValue ?? '') as number | '',
+    weeklyOnHandText: weekly.onHandText ?? '',
+    weeklyMood: weekly.mood ?? '',
+    weeklyExtras: weekly.extras ?? '',
+  };
+
+  const pantrySnapshot = (weekly as any)?.pantrySnapshot ?? [];
+  const barSnapshot = (weekly as any)?.barSnapshot ?? [];
+  const currentMenusCount = Number((weekly as any)?.currentMenusCount ?? 0);
+
   return (
     <div className="bg-white rounded-2xl shadow p-6">
       <h2 className="text-xl font-bold mb-4">Weekly Menu Planning</h2>
@@ -32,9 +53,28 @@ export default function WeeklyPlanner({
         <div>
           <label className="block text-sm font-medium">Portions per Dinner</label>
           <div className="flex items-center gap-2 mt-1">
-            <button className="px-2 py-1 border rounded" onClick={() => setProfile({ ...profile, portionDefault: Math.max(1, profile.portionDefault - 1) })}>-</button>
-            <input type="number" className="w-20 border rounded px-2 py-1 text-center" value={profile.portionDefault} onChange={(e) => setProfile({ ...profile, portionDefault: Math.max(1, +e.target.value) })} />
-            <button className="px-2 py-1 border rounded" onClick={() => setProfile({ ...profile, portionDefault: profile.portionDefault + 1 })}>+</button>
+            <button
+              className="px-2 py-1 border rounded"
+              onClick={() =>
+                setProfile({ ...profile, portionDefault: Math.max(1, profile.portionDefault - 1) })
+              }
+            >
+              -
+            </button>
+            <input
+              type="number"
+              className="w-20 border rounded px-2 py-1 text-center"
+              value={profile.portionDefault}
+              onChange={(e) =>
+                setProfile({ ...profile, portionDefault: Math.max(1, +e.target.value) })
+              }
+            />
+            <button
+              className="px-2 py-1 border rounded"
+              onClick={() => setProfile({ ...profile, portionDefault: profile.portionDefault + 1 })}
+            >
+              +
+            </button>
           </div>
         </div>
 
@@ -108,10 +148,16 @@ export default function WeeklyPlanner({
         <div className="flex items-center gap-3 mt-2">
           <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50">
             📷 Camera
-            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) handleImageToDataUrl(file, setOnHandPreview)
-            }} />
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImageToDataUrl(file, setOnHandPreview);
+              }}
+            />
           </label>
           {onHandPreview && (
             <div className="flex items-center gap-3">
@@ -156,9 +202,13 @@ export default function WeeklyPlanner({
       </div>
 
       <div className="mt-6 flex justify-end">
-        <button className="px-5 py-2 rounded bg-green-600 text-white" onClick={generateMenus}>
-          Generate Menu
-        </button>
+        <N8NGenerate
+          weeklyPlanner={weeklyPlanner}
+          pantrySnapshot={pantrySnapshot}
+          barSnapshot={barSnapshot}
+          currentMenusCount={currentMenusCount}
+          onStart={clearMenus}  // empty the Menus section immediately
+        />
       </div>
     </div>
   );

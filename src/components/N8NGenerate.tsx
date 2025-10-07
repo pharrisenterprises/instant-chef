@@ -30,17 +30,20 @@ export default function N8NGenerate({
   pantrySnapshot,
   barSnapshot,
   currentMenusCount,
+  onStart,   // optional: to clear UI before generation
 }: {
   weeklyPlanner: WeeklyPlanner;
   pantrySnapshot: SnapshotItem[];
   barSnapshot: SnapshotItem[];
   currentMenusCount: number;
+  onStart?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
 
   async function handleGenerate() {
     if (loading) return;
     setLoading(true);
+    onStart?.();
 
     const correlationId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -68,19 +71,11 @@ export default function N8NGenerate({
         body: JSON.stringify(payload),
       });
 
-      // Try to read JSON either way for clearer messages
       const body = await res.json().catch(() => ({} as any));
-
       if (!res.ok) {
-        const msg =
-          body?.error ??
-          (res.status === 401
-            ? 'Please log in to generate your menu.'
-            : `Request failed (${res.status}).`);
-        alert(msg);
+        alert(body?.error ?? `Request failed (${res.status})`);
         return;
       }
-
       alert('Got it! Generating your menu…');
     } catch (err: any) {
       console.error('Generate error', err);
@@ -92,7 +87,7 @@ export default function N8NGenerate({
 
   return (
     <button
-      type="button" // avoid implicit form submit
+      type="button"
       className="rounded bg-emerald-600 text-white px-6 py-3 font-medium disabled:opacity-60"
       onClick={handleGenerate}
       disabled={loading}
