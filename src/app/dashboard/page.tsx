@@ -1,17 +1,17 @@
 'use client';
 
+import dynamic from 'next/dynamic'; // ADD THIS
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-import N8NGenerate, {
-  BasicInformation,
-  HouseholdSetup,
-  CookingPreferences,
-  DietaryProfile,
-  ShoppingPreferences,
-  ClientPayload,
-} from '../../components/N8NGenerate';
+const N8NGenerate = dynamic(() => import('../../components/N8NGenerate'), {
+  ssr: false,
+});
 
 /* -------------------- LocalStorage keys -------------------- */
 const LS = {
@@ -577,21 +577,25 @@ export default function DashboardPage() {
                 </button>
                 <div>
                   <N8NGenerate
-                    profile={{ basicInformation, householdSetup, cookingPreferences, dietaryProfile, shoppingPreferences }}
+                    // hand the real weekly + profile that your generator expects
+                    profile={profile}
                     weekly={{
-                      portionsPerDinner: householdSetup.portionsPerDinner,
-                      dinnersPerWeek: householdSetup.dinnersPerWeek,
-                      preferredGroceryStore: shoppingPreferences.preferredGroceryStore,
-                      preferOrganic: shoppingPreferences.preferOrganic,
-                      preferNationalBrands: shoppingPreferences.preferNationalBrands,
-                      weeklyMood: weekly.mood,
-                      weeklyExtras: weekly.extras,
-                      weeklyOnHandText: weekly.onHandText,
-                      pantrySnapshot: pantry,
-                      barSnapshot: bar,
-                      currentMenusCount: menus?.length ?? 0,
-                    }}
+                      dinners: weekly.dinners,
+                      budgetType: weekly.budgetType,
+                      budgetValue: weekly.budgetValue,
+                      onHandText: weekly.onHandText,
+                      onHandImageDataUrl: weekly.onHandImageDataUrl,
+                      mood: weekly.mood,
+                      extras: weekly.extras,
+                      // optional passthroughs the component knows how to merge
+                      preferredGroceryStore: profile.store,
+                      portionsPerDinner: profile.portionDefault,
+                    } as any}
                     userEmailFromHeader={userEmail ?? undefined}
+                    onSubmitted={() => {
+                      // optional toast or state update
+                      console.log('Submitted to n8n');
+                    }}
                   />
                 </div>
               </div>
