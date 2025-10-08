@@ -1,23 +1,26 @@
-// Browser/client-side Supabase helper
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import type { Database } from './types'
+'use client';
 
-// IMPORTANT: named export `createClient`
-export function createClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+import { createClient as createSupabaseClient, SupabaseClient } from '@supabase/supabase-js';
+
+let cached: SupabaseClient | null = null;
+
+/**
+ * Always returns a valid browser Supabase client or throws with a clear message.
+ * Exported as a *named* function: createClient()
+ */
+export function createClient(): SupabaseClient {
+  if (cached) return cached;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !anon) {
-    // Fail fast with a clear message if env vars are missing in Vercel
-    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY')
+    // This prevents the cryptic "reading 'auth'" error.
+    throw new Error(
+      'Supabase is not configured. Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.'
+    );
   }
 
-  // RETURN the instance (the common mistake is forgetting this return)
-  return createSupabaseClient<Database>(url, anon, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  })
+  cached = createSupabaseClient(url, anon);
+  return cached;
 }
