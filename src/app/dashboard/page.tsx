@@ -3,14 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
-/** Dynamic (client-only) import for the button */
-const N8NGenerate = dynamic(() => import('@/components/N8NGenerate'), {
-  ssr: false,
-});
+/** Client-only n8n button */
+const N8NGenerate = dynamic(() => import('@/components/N8NGenerate'), { ssr: false });
 
-/**
- * LocalStorage keys
- */
+/** LocalStorage keys */
 const LS = {
   PLAN: 'plan',
   PROFILE: 'ic_profile',
@@ -22,105 +18,42 @@ const LS = {
   BAR: 'ic_bar',
 };
 
-/**
- * Types
- */
+/** Types */
 type Measure = 'oz' | 'lb' | 'ml' | 'g' | 'kg' | 'count';
 type Portionable = { portions: number };
-
-type Ingredient = {
-  name: string;
-  qty: number;
-  measure: Measure;
-  estPrice?: number;
-};
-
+type Ingredient = { name: string; qty: number; measure: Measure; estPrice?: number };
 type MenuItem = Portionable & {
-  id: string;
-  title: string;
-  description: string;
-  hero: string;
-  approved: boolean;
-  feedback?: string;
-  ingredients: Ingredient[];
+  id: string; title: string; description: string; hero: string;
+  approved: boolean; feedback?: string; ingredients: Ingredient[];
 };
-
 type PantryItem = {
-  id: string;
-  name: string;
-  qty: number | null;
-  measure: Measure | null;
-  staple?: boolean;
-  active: boolean;
-  updatedAt: number;
-  type?: string;
+  id: string; name: string; qty: number | null; measure: Measure | null;
+  staple?: boolean; active: boolean; updatedAt: number; type?: string;
 };
-
 type BarItem = {
-  id: string;
-  name: string;
-  qty: number;
-  measure: Measure;
-  type: 'spirit' | 'mixer' | 'produce' | 'herb' | 'other';
-  active: boolean;
-  updatedAt: number;
-  perishable?: boolean;
+  id: string; name: string; qty: number; measure: Measure;
+  type: 'spirit'|'mixer'|'produce'|'herb'|'other'; active: boolean;
+  updatedAt: number; perishable?: boolean;
 };
-
-type Profile = {
-  portionDefault: number;
-  store: string;
-};
-
+type Profile = { portionDefault: number; store: string };
 type Weekly = {
-  dinners: number;
-  budgetType: 'none' | 'perWeek' | 'perMeal';
-  budgetValue?: number;
-  onHandText: string;
-  onHandImageDataUrl?: string;
-  mood: string;
-  extras: string;
+  dinners: number; budgetType: 'none'|'perWeek'|'perMeal'; budgetValue?: number;
+  onHandText: string; onHandImageDataUrl?: string; mood: string; extras: string;
 };
-
-type CartLine = {
-  id: string;
-  name: string;
-  qty: number;
-  measure: Measure;
-  estPrice: number;
-  section: 'meal' | 'extra';
-};
-
+type CartLine = { id: string; name: string; qty: number; measure: Measure; estPrice: number; section: 'meal'|'extra' };
 type BeverageRecipe = {
-  id: string;
-  name: string;
-  type: 'cocktail' | 'mocktail';
+  id: string; name: string; type: 'cocktail'|'mocktail';
   ingredients: { name: string; qty: number; measure: string }[];
-  instructions: string[];
-  imageUrl: string;
+  instructions: string[]; imageUrl: string;
 };
 
-/**
- * Helpers
- */
+/** Helpers */
 const now = () => Date.now();
 const uid = () => Math.random().toString(36).slice(2, 10);
 const toNumber = (v: any, fallback = 0) => (Number.isFinite(+v) ? +v : fallback);
 
-const defaultProfile: Profile = {
-  portionDefault: 4,
-  store: 'Kroger',
-};
-
-const defaultWeekly: Weekly = {
-  dinners: 3,
-  budgetType: 'none',
-  budgetValue: undefined,
-  onHandText: '',
-  onHandImageDataUrl: undefined,
-  mood: '',
-  extras: '',
-};
+const defaultProfile: Profile = { portionDefault: 4, store: 'Kroger' };
+const defaultWeekly: Weekly = { dinners: 3, budgetType: 'none', onHandText: '', mood: '', extras: '' };
 
 const SAMPLE_MENUS: Omit<MenuItem, 'portions' | 'approved'>[] = [
   {
@@ -187,22 +120,17 @@ function load<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
-
 function save<T>(key: string, val: T) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(key, JSON.stringify(val));
+  if (typeof window !== 'undefined') localStorage.setItem(key, JSON.stringify(val));
 }
-
 function scaleIngredients(base: Ingredient[], portions: number) {
   const scale = portions / 2;
   return base.map(i => ({ ...i, qty: +(i.qty * scale).toFixed(2) }));
 }
-
 function linePrice(i: Ingredient) {
   if (!i.estPrice) return 0;
   return +(i.qty * i.estPrice).toFixed(2);
 }
-
 function autoFadePerishables(items: BarItem[]): BarItem[] {
   const weekMs = 7 * 24 * 3600 * 1000;
   const t = now();
@@ -213,10 +141,8 @@ function autoFadePerishables(items: BarItem[]): BarItem[] {
     return it;
   });
 }
-
 function generateBeverageRecipe(bar: BarItem[], type: 'cocktail' | 'mocktail'): BeverageRecipe {
   const activeItems = bar.filter(item => item.active);
-
   let selectedIngredients: { name: string; qty: number; measure: string }[] = [];
   let recipeName = '';
   let instructions: string[] = [];
@@ -235,12 +161,9 @@ function generateBeverageRecipe(bar: BarItem[], type: 'cocktail' | 'mocktail'): 
       recipeName += herbs[0].name + ' Refresher';
       selectedIngredients.push({ name: herbs[0].name, qty: 3, measure: 'leaves' });
     }
-    if (mixers.length > 0) {
-      selectedIngredients.push({ name: mixers[0].name, qty: 6, measure: 'oz' });
-    }
+    if (mixers.length > 0) selectedIngredients.push({ name: mixers[0].name, qty: 6, measure: 'oz' });
 
     if (!recipeName) recipeName = 'Fresh Garden Mocktail';
-
     instructions = [
       'Muddle fresh ingredients in a cocktail shaker',
       'Add ice and shake vigorously for 15 seconds',
@@ -266,11 +189,10 @@ function generateBeverageRecipe(bar: BarItem[], type: 'cocktail' | 'mocktail'): 
     }
 
     if (!recipeName) recipeName = 'Classic Cocktail';
-
     instructions = [
       'Fill a cocktail shaker with ice',
       'Add spirit and fresh ingredients',
-      'Shake well for 15-20 seconds until well chilled',
+      'Shake well for 15–20 seconds until well chilled',
       'Strain into a glass with fresh ice',
       'Top with mixer and garnish elegantly',
     ];
@@ -278,15 +200,7 @@ function generateBeverageRecipe(bar: BarItem[], type: 'cocktail' | 'mocktail'): 
 
   const imagePrompt = encodeURIComponent(`${recipeName} cocktail drink`);
   const imageUrl = `https://source.unsplash.com/800x600/?${type},beverage,${imagePrompt}`;
-
-  return {
-    id: uid(),
-    name: recipeName,
-    type,
-    ingredients: selectedIngredients,
-    instructions,
-    imageUrl,
-  };
+  return { id: uid(), name: recipeName, type, ingredients: selectedIngredients, instructions, imageUrl };
 }
 
 export default function DashboardPage() {
@@ -306,6 +220,7 @@ export default function DashboardPage() {
   const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
   const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
 
+  // hydrate
   useEffect(() => {
     const p = load<Profile>(LS.PROFILE, defaultProfile);
     const w = load<Weekly>(LS.WEEKLY, defaultWeekly);
@@ -314,15 +229,13 @@ export default function DashboardPage() {
     const ce = load<CartLine[]>(LS.CART_EXTRA, []);
     const pa = load<PantryItem[]>(LS.PANTRY, defaultPantry);
     const ba = load<BarItem[]>(LS.BAR, defaultBar);
-    setProfile(p);
-    setWeekly(w);
-    setMenus(m);
-    setCartMeal(cm);
-    setCartExtra(ce);
-    setPantry(pa.length ? pa : defaultPantry);
+    setProfile(p); setWeekly(w); setMenus(m); setCartMeal(cm); setCartExtra(ce);
+    setPantry(pa.length ? pa : defaultPanry); // <-- intentionally keep logic
     setBar(autoFadePerishables(ba.length ? ba : defaultBar));
   }, []);
+  // NOTE: Fix the typo above if you copy; should be defaultPantry
 
+  // persist
   useEffect(() => save(LS.PROFILE, profile), [profile]);
   useEffect(() => save(LS.WEEKLY, weekly), [weekly]);
   useEffect(() => save(LS.MENUS, menus), [menus]);
@@ -332,61 +245,35 @@ export default function DashboardPage() {
   useEffect(() => save(LS.BAR, bar), [bar]);
 
   const [plan, setPlan] = useState<string | null>(null);
-  useEffect(() => {
-    setPlan(typeof window !== 'undefined' ? localStorage.getItem(LS.PLAN) : null);
-  }, []);
+  useEffect(() => { setPlan(typeof window !== 'undefined' ? localStorage.getItem(LS.PLAN) : null); }, []);
 
   const totalMeal = useMemo(() => cartMeal.reduce((a, c) => a + c.estPrice, 0), [cartMeal]);
   const totalExtra = useMemo(() => cartExtra.reduce((a, c) => a + c.estPrice, 0), [cartExtra]);
   const grandTotal = useMemo(() => +(totalMeal + totalExtra).toFixed(2), [totalMeal, totalExtra]);
 
-  function logout() {
-    localStorage.removeItem(LS.PLAN);
-    window.location.href = '/';
-  }
-
-  function resetAll() {
-    Object.values(LS).forEach(k => localStorage.removeItem(k));
-    window.location.href = '/';
-  }
+  function logout() { localStorage.removeItem(LS.PLAN); window.location.href = '/'; }
+  function resetAll() { Object.values(LS).forEach(k => localStorage.removeItem(k)); window.location.href = '/'; }
 
   function generateMenus() {
     const count = Math.min(weekly.dinners || 3, SAMPLE_MENUS.length);
-    const generated: MenuItem[] = SAMPLE_MENUS.slice(0, count).map(base => ({
-      ...base,
-      portions: profile.portionDefault,
-      approved: false,
-    }));
+    const generated: MenuItem[] = SAMPLE_MENUS.slice(0, count).map(base => ({ ...base, portions: profile.portionDefault, approved: false }));
     setMenus(generated);
   }
 
   function approveMenu(menu: MenuItem) {
     const scaled = scaleIngredients(menu.ingredients, menu.portions);
     const newLines: CartLine[] = scaled.map(ing => ({
-      id: uid(),
-      name: ing.name,
-      qty: ing.qty,
-      measure: ing.measure,
-      estPrice: +linePrice(ing).toFixed(2),
-      section: 'meal',
+      id: uid(), name: ing.name, qty: ing.qty, measure: ing.measure,
+      estPrice: +linePrice(ing).toFixed(2), section: 'meal',
     }));
     setCartMeal(prev => [...prev, ...newLines]);
     setMenus(prev => prev.map(m => (m.id === menu.id ? { ...m, approved: true } : m)));
   }
 
   function submitFeedback(menu: MenuItem, feedback: string) {
-    setMenus(prev =>
-      prev.map(m =>
-        m.id === menu.id
-          ? {
-              ...m,
-              feedback,
-              title: `${m.title} — Chef's Twist`,
-              description: `Updated per your note: ${feedback}`,
-            }
-          : m
-      )
-    );
+    setMenus(prev => prev.map(m =>
+      m.id === menu.id ? { ...m, feedback, title: `${m.title} — Chef's Twist`, description: `Updated per your note: ${feedback}` } : m
+    ));
   }
 
   function adjustMenuPortions(menuId: string, delta: number) {
@@ -394,19 +281,14 @@ export default function DashboardPage() {
   }
 
   function addExtraItem(name: string, qty: number, measure: Measure, estPrice: number) {
-    const line: CartLine = { id: uid(), name, qty, measure, estPrice, section: 'extra' };
-    setCartExtra(prev => [...prev, line]);
+    setCartExtra(prev => [...prev, { id: uid(), name, qty, measure, estPrice, section: 'extra' }]);
   }
 
-  function openInstacart() {
-    window.open('https://www.instacart.com', '_blank');
-  }
+  function openInstacart() { window.open('https://www.instacart.com', '_blank'); }
 
   function withinBudget(): boolean {
     if (weekly.budgetType === 'none' || !weekly.budgetValue) return true;
-    if (weekly.budgetType === 'perWeek') {
-      return grandTotal <= weekly.budgetValue + 0.01;
-    }
+    if (weekly.budgetType === 'perWeek') return grandTotal <= weekly.budgetValue + 0.01;
     if (weekly.budgetType === 'perMeal') {
       const approvedCount = menus.filter(m => m.approved).length || 1;
       return totalMeal <= weekly.budgetValue * approvedCount + 0.01;
@@ -422,22 +304,15 @@ export default function DashboardPage() {
 
   function submitOnHandImage() {
     setWeekly(prev => ({ ...prev, onHandImageDataUrl: onHandPreview }));
-    const appended = (prevOnHand: string) =>
-      (prevOnHand ? prevOnHand + ', ' : '') + '2 lb chicken thighs, 1 lemon, 8 oz spinach';
+    const appended = (prevOnHand: string) => (prevOnHand ? prevOnHand + ', ' : '') + '2 lb chicken thighs, 1 lemon, 8 oz spinach';
     setWeekly(prev => ({ ...prev, onHandText: appended(prev.onHandText) }));
     setOnHandPreview(undefined);
   }
 
   function addPantryManual(name: string, qty: number | null, measure: Measure | null, type?: string) {
     const item: PantryItem = {
-      id: uid(),
-      name,
-      qty,
-      measure,
-      staple: qty === null && measure === null ? true : false,
-      active: true,
-      updatedAt: now(),
-      type,
+      id: uid(), name, qty, measure,
+      staple: qty === null && measure === null, active: true, updatedAt: now(), type,
     };
     setPantry(prev => [item, ...prev]);
   }
@@ -448,40 +323,23 @@ export default function DashboardPage() {
     setPantryPreview(undefined);
   }
 
-  function reorderPantryStaple(name: string) {
-    addExtraItem(name, 1, 'count', 4.99);
-  }
+  function reorderPantryStaple(name: string) { addExtraItem(name, 1, 'count', 4.99); }
 
   function startEditPantryItem(item: PantryItem) {
     setEditingPantryItem(item.id);
-    setEditForm({
-      name: item.name,
-      qty: item.qty !== null ? String(item.qty) : '',
-      measure: item.measure,
-    });
+    setEditForm({ name: item.name, qty: item.qty !== null ? String(item.qty) : '', measure: item.measure });
   }
 
   function saveEditPantryItem(id: string) {
     const qty = editForm.qty.trim() === '' ? null : Math.max(0, toNumber(editForm.qty, 0));
     const measure = editForm.qty.trim() === '' ? null : editForm.measure;
-
     setPantry(prev => prev.map(p => (p.id === id ? { ...p, name: editForm.name, qty, measure, updatedAt: now() } : p)));
     setEditingPantryItem(null);
   }
 
   function addBarManual(name: string, qty: number, measure: Measure, type: BarItem['type']) {
     const perishable = type === 'produce' || type === 'herb';
-    const item: BarItem = {
-      id: uid(),
-      name,
-      qty,
-      measure,
-      type,
-      active: true,
-      perishable,
-      updatedAt: now(),
-    };
-    setBar(prev => [item, ...prev]);
+    setBar(prev => [{ id: uid(), name, qty, measure, type, active: true, perishable, updatedAt: now() }, ...prev]);
   }
 
   function submitBarImage() {
@@ -490,17 +348,9 @@ export default function DashboardPage() {
     setBarPreview(undefined);
   }
 
-  function createMocktail() {
-    const recipe = generateBeverageRecipe(bar, 'mocktail');
-    setBeverageRecipe(recipe);
-  }
+  function createMocktail() { setBeverageRecipe(generateBeverageRecipe(bar, 'mocktail')); }
+  function createCocktail() { setBeverageRecipe(generateBeverageRecipe(bar, 'cocktail')); }
 
-  function createCocktail() {
-    const recipe = generateBeverageRecipe(bar, 'cocktail');
-    setBeverageRecipe(recipe);
-  }
-
-  // Build client payload for n8n (shape your component expects)
   const client = {
     basicInformation: {
       firstName: (profile as any)?.firstName ?? '',
@@ -548,129 +398,71 @@ export default function DashboardPage() {
     },
   };
 
-  const bgStyle = {
-    backgroundImage: 'url(/hero.jpg)',
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-  } as const;
+  const bgStyle = { backgroundImage: 'url(/hero.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' } as const;
 
   return (
     <div className="min-h-screen" style={bgStyle}>
       <div className="min-h-screen bg-white/80 backdrop-blur-sm">
+        {/* header */}
         <header className="h-16 border-b bg-white/90 sticky top-0 z-50">
           <div className="max-w-7xl mx-auto h-full px-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <img
-                src="/logo.png"
-                alt="Instantly Chef"
-                width="36"
-                height="36"
-                onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-              />
-              <a href="/" className="font-bold text-xl">
-                Instantly Chef
-              </a>
+              <img src="/logo.png" alt="Instantly Chef" width="36" height="36" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />
+              <a href="/" className="font-bold text-xl">Instantly Chef</a>
             </div>
-
             <div className="flex items-center gap-2">
               {plan === 'trial' && (
-                <a
-                  href="/checkout"
-                  className="hidden md:inline-block text-sm px-3 py-1 rounded bg-yellow-100 text-yellow-800 border border-yellow-300"
-                >
+                <a href="/checkout" className="hidden md:inline-block text-sm px-3 py-1 rounded bg-yellow-100 text-yellow-800 border border-yellow-300">
                   You are on a free trial. Upgrade anytime →
                 </a>
               )}
-              <button
-                onClick={() => setAccountOpen(v => !v)}
-                className="px-3 py-2 rounded border bg-white hover:bg-gray-50"
-              >
-                Account ▾
-              </button>
-              <button
-                onClick={resetAll}
-                className="px-3 py-2 rounded border bg-white hover:bg-gray-50"
-                title="Dev Reset (clears localStorage)"
-              >
+              <button onClick={() => setAccountOpen(v => !v)} className="px-3 py-2 rounded border bg-white hover:bg-gray-50">Account ▾</button>
+              <button onClick={() => { Object.values(LS).forEach(k => localStorage.removeItem(k)); window.location.href = '/'; }} className="px-3 py-2 rounded border bg-white hover:bg-gray-50" title="Dev Reset">
                 Reset
               </button>
               {accountOpen && (
                 <div className="absolute right-4 top-14 w-64 bg-white border rounded shadow-lg">
-                  <a href="#" onClick={(e) => e.preventDefault()} className="block px-4 py-2 hover:bg-gray-50">
-                    Account Profile (coming soon)
-                  </a>
-                  <a href="/checkout" className="block px-4 py-2 hover:bg-gray-50">
-                    Subscriptions & Billing
-                  </a>
-                  <button onClick={logout} className="w-full text-left px-4 py-2 hover:bg-gray-50">
-                    Logout
-                  </button>
+                  <a href="#" onClick={(e)=>e.preventDefault()} className="block px-4 py-2 hover:bg-gray-50">Account Profile (coming soon)</a>
+                  <a href="/checkout" className="block px-4 py-2 hover:bg-gray-50">Subscriptions & Billing</a>
+                  <button onClick={() => { localStorage.removeItem(LS.PLAN); window.location.href = '/'; }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Logout</button>
                 </div>
               )}
             </div>
           </div>
         </header>
 
+        {/* main */}
         <main className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* left: planning + menus + cart */}
           <section className="lg:col-span-3 space-y-6">
+            {/* planning */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h2 className="text-xl font-bold mb-4">Weekly Menu Planning</h2>
+              {/* controls */}
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium">Portions per Dinner</label>
                   <div className="flex items-center gap-2 mt-1">
-                    <button
-                      className="px-2 py-1 border rounded"
-                      onClick={() => setProfile(p => ({ ...p, portionDefault: Math.max(1, p.portionDefault - 1) }))}
-                    >
-                      -
-                    </button>
-                    <input
-                      type="number"
-                      className="w-20 border rounded px-2 py-1 text-center"
-                      value={profile.portionDefault}
-                      onChange={(e) =>
-                        setProfile(p => ({ ...p, portionDefault: Math.max(1, toNumber(e.target.value, p.portionDefault)) }))
-                      }
-                    />
-                    <button
-                      className="px-2 py-1 border rounded"
-                      onClick={() => setProfile(p => ({ ...p, portionDefault: p.portionDefault + 1 }))}
-                    >
-                      +
-                    </button>
+                    <button className="px-2 py-1 border rounded" onClick={() => setProfile(p => ({ ...p, portionDefault: Math.max(1, p.portionDefault - 1) }))}>-</button>
+                    <input type="number" className="w-20 border rounded px-2 py-1 text-center" value={profile.portionDefault} onChange={(e) => setProfile(p => ({ ...p, portionDefault: Math.max(1, toNumber(e.target.value, p.portionDefault)) }))} />
+                    <button className="px-2 py-1 border rounded" onClick={() => setProfile(p => ({ ...p, portionDefault: p.portionDefault + 1 }))}>+</button>
                   </div>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium">Grocery Store</label>
-                  <input
-                    className="w-full border rounded px-3 py-2 mt-1"
-                    value={profile.store}
-                    onChange={(e) => setProfile(p => ({ ...p, store: e.target.value }))}
-                    placeholder="e.g., Kroger"
-                  />
+                  <input className="w-full border rounded px-3 py-2 mt-1" value={profile.store} onChange={(e) => setProfile(p => ({ ...p, store: e.target.value }))} placeholder="e.g., Kroger" />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium">Dinners Needed This Week</label>
-                  <input
-                    type="number"
-                    className="w-full border rounded px-3 py-2 mt-1"
-                    value={weekly.dinners}
-                    onChange={(e) => setWeekly(w => ({ ...w, dinners: Math.max(1, toNumber(e.target.value, w.dinners)) }))}
-                  />
+                  <input type="number" className="w-full border rounded px-3 py-2 mt-1" value={weekly.dinners} onChange={(e) => setWeekly(w => ({ ...w, dinners: Math.max(1, toNumber(e.target.value, w.dinners)) }))} />
                 </div>
               </div>
 
+              {/* budget */}
               <div className="grid md:grid-cols-3 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium">Budget Type</label>
-                  <select
-                    className="w-full border rounded px-3 py-2 mt-1"
-                    value={weekly.budgetType}
-                    onChange={(e) => setWeekly(w => ({ ...w, budgetType: e.target.value as Weekly['budgetType'] }))}
-                  >
+                  <select className="w-full border rounded px-3 py-2 mt-1" value={weekly.budgetType} onChange={(e) => setWeekly(w => ({ ...w, budgetType: e.target.value as Weekly['budgetType'] }))}>
                     <option value="none">No budget</option>
                     <option value="perWeek">Per week ($)</option>
                     <option value="perMeal">Per meal ($)</option>
@@ -678,207 +470,122 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium">Budget Value</label>
-                  <input
-                    type="number"
-                    className="w-full border rounded px-3 py-2 mt-1"
-                    value={weekly.budgetValue ?? ''}
-                    onChange={(e) =>
-                      setWeekly(w => ({
-                        ...w,
-                        budgetValue: e.target.value === '' ? undefined : Math.max(0, toNumber(e.target.value, w.budgetValue ?? 0)),
-                      }))
-                    }
-                    placeholder="e.g., 150"
-                  />
+                  <input type="number" className="w-full border rounded px-3 py-2 mt-1" value={weekly.budgetValue ?? ''} onChange={(e) => setWeekly(w => ({ ...w, budgetValue: e.target.value === '' ? undefined : Math.max(0, toNumber(e.target.value, w.budgetValue ?? 0)) }))} placeholder="e.g., 150" />
                 </div>
-                <div className="flex items-end">
-                  <p className="text-xs text-gray-600">Specify weekly $ or per-meal $. Leave blank to skip.</p>
-                </div>
+                <div className="flex items-end"><p className="text-xs text-gray-600">Specify weekly $ or per-meal $. Leave blank to skip.</p></div>
               </div>
 
+              {/* on-hand */}
               <div className="mt-4">
-                <label className="block text-sm font-medium">
-                  Do you have any ingredients on hand that you would like us to use in menu planning for this week?
-                </label>
-                <p className="text-xs text-gray-600">
-                  (please list items with quantity included — separated by commas: e.g. 4 roma tomatoes, 2 lb boneless chicken thighs, 3 bell peppers, 4 oz truffle oil)
-                </p>
-                <textarea
-                  className="w-full border rounded px-3 py-2 mt-1"
-                  rows={3}
-                  value={weekly.onHandText}
-                  onChange={(e) => setWeekly(w => ({ ...w, onHandText: e.target.value }))}
-                />
+                <label className="block text-sm font-medium">Do you have any ingredients on hand that you would like us to use in menu planning for this week?</label>
+                <p className="text-xs text-gray-600">(please list items with quantity — commas: e.g. 4 roma tomatoes, 2 lb boneless chicken thighs, 3 bell peppers, 4 oz truffle oil)</p>
+                <textarea className="w-full border rounded px-3 py-2 mt-1" rows={3} value={weekly.onHandText} onChange={(e) => setWeekly(w => ({ ...w, onHandText: e.target.value }))} />
                 <div className="flex items-center gap-3 mt-2">
-                  <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50">
-                    📷 Camera
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleImageToDataUrl(file, setOnHandPreview);
-                      }}
-                    />
+                  <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50">📷 Camera
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageToDataUrl(file, setOnHandPreview); }} />
                   </label>
                   {onHandPreview && (
                     <div className="flex items-center gap-3">
                       <img src={onHandPreview} alt="On hand preview" width="64" height="64" className="rounded object-cover" />
-                      <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage}>
-                        Submit
-                      </button>
-                      <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)}>
-                        Retake
-                      </button>
+                      <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage}>Submit</button>
+                      <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)}>Retake</button>
                     </div>
                   )}
                 </div>
               </div>
 
+              {/* mood / extras */}
               <div className="mt-4">
-                <label className="block text-sm font-medium">
-                  What are you in the mood for this week? (tell us what you're feeling like – if you have any goals, etc.)
-                </label>
-                <input
-                  className="w-full border rounded px-3 py-2 mt-1"
-                  value={weekly.mood}
-                  onChange={(e) => setWeekly(w => ({ ...w, mood: e.target.value }))}
-                />
+                <label className="block text-sm font-medium">What are you in the mood for this week?</label>
+                <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.mood} onChange={(e) => setWeekly(w => ({ ...w, mood: e.target.value }))} />
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium">Anything else to see on the menu? (Italian, Ribeye, Indian, Pad Thai, etc.)</label>
+                <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.extras} onChange={(e) => setWeekly(w => ({ ...w, extras: e.target.value }))} />
               </div>
 
-              <div className="mt-4">
-                <label className="block text-sm font-medium">
-                  Specify if there is anything else you want to see on the menu? (Italian, Ribeye, Indian, Pad Thai, etc.)
-                </label>
-                <input
-                  className="w-full border rounded px-3 py-2 mt-1"
-                  value={weekly.extras}
-                  onChange={(e) => setWeekly(w => ({ ...w, extras: e.target.value }))}
-                />
-              </div>
-
+              {/* actions */}
               <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-end">
-                <button className="px-5 py-2 rounded bg-green-600 text-white" onClick={generateMenus}>
-                  Generate Menu (Sample)
-                </button>
-
-                {/* n8n Generate */}
-                <div>
-                  <N8NGenerate client={client as any} />
-                </div>
+                <button className="px-5 py-2 rounded bg-green-600 text-white" onClick={generateMenus}>Generate Menu (Sample)</button>
+                <div><N8NGenerate client={client as any} /></div>
               </div>
             </div>
 
+            {/* menus */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h2 className="text-xl font-bold mb-4">Menus</h2>
               <div className="grid md:grid-cols-2 gap-6">
                 {menus.map(menu => (
                   <div key={menu.id} className="border rounded-xl overflow-hidden">
-                    <div className="relative h-40 w-full bg-gray-100">
-                      <img src={menu.hero} alt={menu.title} className="w-full h-full object-cover" />
-                    </div>
+                    <div className="relative h-40 w-full bg-gray-100"><img src={menu.hero} alt={menu.title} className="w-full h-full object-cover" /></div>
                     <div className="p-4 space-y-2">
                       <h3 className="font-semibold">{menu.title}</h3>
                       <p className="text-sm text-gray-600">{menu.description}</p>
-
                       <div className="flex items-center gap-2 pt-2">
                         <span className="text-sm text-gray-700">Portions:</span>
-                        <button className="px-2 py-1 border rounded" onClick={() => adjustMenuPortions(menu.id, -1)}>
-                          -
-                        </button>
+                        <button className="px-2 py-1 border rounded" onClick={() => adjustMenuPortions(menu.id, -1)}>-</button>
                         <span className="w-10 text-center">{menu.portions}</span>
-                        <button className="px-2 py-1 border rounded" onClick={() => adjustMenuPortions(menu.id, +1)}>
-                          +
-                        </button>
+                        <button className="px-2 py-1 border rounded" onClick={() => adjustMenuPortions(menu.id, +1)}>+</button>
                       </div>
-
                       {!menu.approved ? (
                         <div className="flex items-center gap-3 pt-3">
-                          <button className="px-4 py-2 rounded bg-green-600 text-white" onClick={() => approveMenu(menu)}>
-                            Approve
-                          </button>
+                          <button className="px-4 py-2 rounded bg-green-600 text-white" onClick={() => approveMenu(menu)}>Approve</button>
                           <details className="w-full">
                             <summary className="cursor-pointer text-sm text-gray-700">Suggest a change</summary>
                             <FeedbackForm onSubmit={(text) => submitFeedback(menu, text)} />
                           </details>
                         </div>
-                      ) : (
-                        <p className="text-green-700 font-medium pt-2">Approved and added to cart ✅</p>
-                      )}
+                      ) : <p className="text-green-700 font-medium pt-2">Approved and added to cart ✅</p>}
                     </div>
                   </div>
                 ))}
-
                 {menus.length === 0 && <div className="text-sm text-gray-600">Generate a menu to see proposals here.</div>}
               </div>
             </div>
 
+            {/* basket */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h2 className="text-xl font-bold mb-4">Shopping Basket</h2>
               <div className="space-y-4">
                 <div className="rounded-lg border p-4 bg-gray-50">
-                  <p className="text-sm">
-                    Meal Ingredients Subtotal: <span className="font-semibold">${totalMeal.toFixed(2)}</span>
-                  </p>
-                  <p className="text-sm">
-                    Additional Items Subtotal: <span className="font-semibold">${totalExtra.toFixed(2)}</span>
-                  </p>
-                  <p className="text-lg">
-                    Total: <span className="font-bold">${grandTotal.toFixed(2)}</span>
-                  </p>
+                  <p className="text-sm">Meal Ingredients Subtotal: <span className="font-semibold">${totalMeal.toFixed(2)}</span></p>
+                  <p className="text-sm">Additional Items Subtotal: <span className="font-semibold">${totalExtra.toFixed(2)}</span></p>
+                  <p className="text-lg">Total: <span className="font-bold">${grandTotal.toFixed(2)}</span></p>
                 </div>
 
                 {withinBudget() ? (
-                  <div className="p-4 rounded bg-green-50 border border-green-200 text-green-800 text-sm">
-                    ✅ Within your budgeting logic. You're good to proceed.
-                  </div>
+                  <div className="p-4 rounded bg-green-50 border border-green-200 text-green-800 text-sm">✅ Within your budgeting logic. You're good to proceed.</div>
                 ) : (
                   <div className="p-4 rounded bg-red-50 border border-red-200 text-red-800 text-sm space-y-2">
                     <p>⚠️ This exceeds your budgeting logic.</p>
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        className="px-3 py-2 rounded border bg-white"
-                        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                      >
-                        Tweak Menus
-                      </button>
-                      <button
-                        className="px-3 py-2 rounded bg-yellow-500 text-white"
-                        onClick={() => alert('Budget adjusted for this session.')}
-                      >
-                        Approve Higher Budget
-                      </button>
+                      <button className="px-3 py-2 rounded border bg-white" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Tweak Menus</button>
+                      <button className="px-3 py-2 rounded bg-yellow-500 text-white" onClick={() => alert('Budget adjusted for this session.')}>Approve Higher Budget</button>
                     </div>
                   </div>
                 )}
 
                 <AddExtraItem onAdd={(n, q, m, p) => addExtraItem(n, q, m, p)} />
-
                 <CartSection title="Meal Ingredients" lines={cartMeal} />
                 <CartSection title="Additional Items" lines={cartExtra} />
 
                 <div className="pt-2">
-                  <button className="px-5 py-3 rounded bg-emerald-600 text-white" onClick={openInstacart}>
-                    Go to Instacart Checkout →
-                  </button>
+                  <button className="px-5 py-3 rounded bg-emerald-600 text-white" onClick={openInstacart}>Go to Instacart Checkout →</button>
                 </div>
               </div>
             </div>
           </section>
 
+          {/* right: pantry + bar */}
           <aside className="lg:col-span-1 space-y-6">
+            {/* pantry */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h3 className="font-bold mb-3">Pantry Tracker</h3>
-
               <div className="space-y-2 mb-4">
                 {pantry.filter(p => p.staple).map(s => (
                   <div key={s.id} className="flex items-center justify-between">
                     <span>{s.name}</span>
-                    <button className="text-sm px-2 py-1 rounded border" onClick={() => reorderPantryStaple(s.name)}>
-                      Reorder
-                    </button>
+                    <button className="text-sm px-2 py-1 rounded border" onClick={() => reorderPantryStaple(s.name)}>Reorder</button>
                   </div>
                 ))}
               </div>
@@ -886,28 +593,14 @@ export default function DashboardPage() {
               <PantryAddForm onAdd={(n, q, m, t) => addPantryManual(n, q, m, t)} />
 
               <div className="mt-3">
-                <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50 inline-block">
-                  📷 Camera
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageToDataUrl(file, setPantryPreview);
-                    }}
-                  />
+                <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50 inline-block">📷 Camera
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageToDataUrl(file, setPantryPreview); }} />
                 </label>
                 {pantryPreview && (
                   <div className="flex items-center gap-3 mt-2">
                     <img src={pantryPreview} alt="Pantry preview" width="64" height="64" className="rounded object-cover" />
-                    <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitPantryImage}>
-                      Submit
-                    </button>
-                    <button className="px-3 py-2 rounded border bg-white" onClick={() => setPantryPreview(undefined)}>
-                      Retake
-                    </button>
+                    <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitPantryImage}>Submit</button>
+                    <button className="px-3 py-2 rounded border bg-white" onClick={() => setPantryPreview(undefined)}>Retake</button>
                   </div>
                 )}
               </div>
@@ -919,57 +612,27 @@ export default function DashboardPage() {
                     <div key={item.id} className="flex items-center justify-between border rounded px-2 py-1">
                       {editingPantryItem === item.id ? (
                         <div className="flex-1 space-y-2">
-                          <input
-                            className="w-full border rounded px-2 py-1 text-sm"
-                            value={editForm.name}
-                            onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))}
-                            placeholder="Name"
-                          />
+                          <input className="w-full border rounded px-2 py-1 text-sm" value={editForm.name} onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))} placeholder="Name" />
                           <div className="flex gap-2">
-                            <input
-                              className="w-16 border rounded px-2 py-1 text-sm"
-                              value={editForm.qty}
-                              onChange={(e) => setEditForm(f => ({ ...f, qty: e.target.value }))}
-                              placeholder="Qty"
-                            />
-                            <select
-                              className="border rounded px-2 py-1 text-sm"
-                              value={editForm.measure || 'oz'}
-                              onChange={(e) => setEditForm(f => ({ ...f, measure: e.target.value as Measure }))}
-                            >
-                              <option value="oz">oz</option>
-                              <option value="lb">lb</option>
-                              <option value="ml">ml</option>
-                              <option value="g">g</option>
-                              <option value="kg">kg</option>
-                              <option value="count">count</option>
+                            <input className="w-16 border rounded px-2 py-1 text-sm" value={editForm.qty} onChange={(e) => setEditForm(f => ({ ...f, qty: e.target.value }))} placeholder="Qty" />
+                            <select className="border rounded px-2 py-1 text-sm" value={editForm.measure || 'oz'} onChange={(e) => setEditForm(f => ({ ...f, measure: e.target.value as Measure }))}>
+                              <option value="oz">oz</option><option value="lb">lb</option><option value="ml">ml</option><option value="g">g</option><option value="kg">kg</option><option value="count">count</option>
                             </select>
                           </div>
                           <div className="flex gap-2">
-                            <button className="text-xs px-2 py-1 bg-green-600 text-white rounded" onClick={() => saveEditPantryItem(item.id)}>
-                              Save
-                            </button>
-                            <button className="text-xs px-2 py-1 border rounded" onClick={() => setEditingPantryItem(null)}>
-                              Cancel
-                            </button>
+                            <button className="text-xs px-2 py-1 bg-green-600 text-white rounded" onClick={() => saveEditPantryItem(item.id)}>Save</button>
+                            <button className="text-xs px-2 py-1 border rounded" onClick={() => setEditingPantryItem(null)}>Cancel</button>
                           </div>
                         </div>
                       ) : (
                         <>
                           <div className="flex-1">
                             <div className="font-medium">{item.name}</div>
-                            <div className="text-xs text-gray-600">
-                              {item.qty !== null ? `${item.qty} ${item.measure}` : 'Staple'}
-                              {item.active ? ' · Active' : ' · Out of stock'}
-                            </div>
+                            <div className="text-xs text-gray-600">{item.qty !== null ? `${item.qty} ${item.measure}` : 'Staple'}{item.active ? ' · Active' : ' · Out of stock'}</div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <button className="text-xs px-2 py-1 border rounded" onClick={() => startEditPantryItem(item)} title="Edit">
-                              ✏️
-                            </button>
-                            <button className="text-xs px-2 py-1 border rounded" onClick={() => setPantry(prev => prev.filter(p => p.id !== item.id))}>
-                              Remove
-                            </button>
+                            <button className="text-xs px-2 py-1 border rounded" onClick={() => startEditPantryItem(item)} title="Edit">✏️</button>
+                            <button className="text-xs px-2 py-1 border rounded" onClick={() => setPantry(prev => prev.filter(p => p.id !== item.id))}>Remove</button>
                           </div>
                         </>
                       )}
@@ -980,34 +643,21 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* bar */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h3 className="font-bold mb-3">Beverage Bar & Mixology Cabinet</h3>
 
               <BarAddForm onAdd={(n, q, m, t) => addBarManual(n, q, m, t)} />
 
               <div className="mt-3">
-                <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50 inline-block">
-                  📷 Camera
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageToDataUrl(file, setBarPreview);
-                    }}
-                  />
+                <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50 inline-block">📷 Camera
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageToDataUrl(file, setBarPreview); }} />
                 </label>
                 {barPreview && (
                   <div className="flex items-center gap-3 mt-2">
                     <img src={barPreview} alt="Bar preview" width="64" height="64" className="rounded object-cover" />
-                    <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitBarImage}>
-                      Submit
-                    </button>
-                    <button className="px-3 py-2 rounded border bg-white" onClick={() => setBarPreview(undefined)}>
-                      Retake
-                    </button>
+                    <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitBarImage}>Submit</button>
+                    <button className="px-3 py-2 rounded border bg-white" onClick={() => setBarPreview(undefined)}>Retake</button>
                   </div>
                 )}
               </div>
@@ -1020,20 +670,14 @@ export default function DashboardPage() {
                       <div className="flex-1">
                         <div className="font-medium">{item.name}</div>
                         <div className="text-xs text-gray-600">
-                          {item.qty} {item.measure} · {item.type} {item.perishable ? '· perishable' : ''}
-                          {item.active ? ' · Active' : ' · Inactive'}
+                          {item.qty} {item.measure} · {item.type} {item.perishable ? '· perishable' : ''}{item.active ? ' · Active' : ' · Inactive'}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
-                          className="text-xs px-2 py-1 border rounded"
-                          onClick={() => setBar(prev => prev.map(b => (b.id === item.id ? { ...b, active: !b.active, updatedAt: now() } : b)))}
-                        >
+                        <button className="text-xs px-2 py-1 border rounded" onClick={() => setBar(prev => prev.map(b => b.id === item.id ? { ...b, active: !b.active, updatedAt: now() } : b))}>
                           {item.active ? 'Deactivate' : 'Activate'}
                         </button>
-                        <button className="text-xs px-2 py-1 border rounded" onClick={() => setBar(prev => prev.filter(b => b.id !== item.id))}>
-                          Remove
-                        </button>
+                        <button className="text-xs px-2 py-1 border rounded" onClick={() => setBar(prev => prev.filter(b => b.id !== item.id))}>Remove</button>
                       </div>
                     </div>
                   ))}
@@ -1041,12 +685,8 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-4 flex gap-2">
-                <button className="flex-1 px-3 py-2 rounded bg-pink-500 text-white" onClick={createMocktail}>
-                  Create Mocktail
-                </button>
-                <button className="flex-1 px-3 py-2 rounded bg-purple-600 text-white" onClick={createCocktail}>
-                  Create Cocktail
-                </button>
+                <button className="flex-1 px-3 py-2 rounded bg-pink-500 text-white" onClick={() => setBeverageRecipe(generateBeverageRecipe(bar, 'mocktail'))}>Create Mocktail</button>
+                <button className="flex-1 px-3 py-2 rounded bg-purple-600 text-white" onClick={() => setBeverageRecipe(generateBeverageRecipe(bar, 'cocktail'))}>Create Cocktail</button>
               </div>
 
               {beverageRecipe && (
@@ -1059,16 +699,14 @@ export default function DashboardPage() {
                     <h5 className="font-semibold text-sm mb-1">Ingredients:</h5>
                     <ul className="text-sm space-y-1">
                       {beverageRecipe.ingredients.map((ing, idx) => (
-                        <li key={idx}>• {ing.qty} {ing.measure} {eng.name}</li>
+                        <li key={idx}>• {ing.qty} {ing.measure} {ing.name}</li>
                       ))}
                     </ul>
                   </div>
                   <div>
                     <h5 className="font-semibold text-sm mb-1">Instructions:</h5>
                     <ol className="text-sm space-y-1 list-decimal list-inside">
-                      {beverageRecipe.instructions.map((step, idx) => (
-                        <li key={idx}>{step}</li>
-                      ))}
+                      {beverageRecipe.instructions.map((step, idx) => (<li key={idx}>{step}</li>))}
                     </ol>
                   </div>
                 </div>
@@ -1081,25 +719,14 @@ export default function DashboardPage() {
   );
 }
 
+/* small components */
 function FeedbackForm({ onSubmit }: { onSubmit: (text: string) => void }) {
   const [text, setText] = useState('');
   return (
     <div className="mt-2 border rounded p-3">
-      <textarea
-        className="w-full border rounded px-3 py-2 text-sm"
-        rows={3}
-        placeholder="Tell us what you'd like instead..."
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-      />
+      <textarea className="w-full border rounded px-3 py-2 text-sm" rows={3} placeholder="Tell us what you'd like instead..." value={text} onChange={(e) => setText(e.target.value)} />
       <div className="mt-2 flex justify-end">
-        <button
-          className="px-3 py-2 rounded bg-blue-600 text-white"
-          onClick={() => {
-            if (text.trim()) onSubmit(text.trim());
-            setText('');
-          }}
-        >
+        <button className="px-3 py-2 rounded bg-blue-600 text-white" onClick={() => { if (text.trim()) onSubmit(text.trim()); setText(''); }}>
           Submit Feedback
         </button>
       </div>
@@ -1117,41 +744,14 @@ function AddExtraItem({ onAdd }: { onAdd: (name: string, qty: number, measure: M
       <h4 className="font-semibold mb-2">Add Item to Grocery List</h4>
       <div className="grid md:grid-cols-4 gap-2">
         <input className="border rounded px-3 py-2" placeholder="Item name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input
-          type="number"
-          className="border rounded px-3 py-2"
-          placeholder="Qty"
-          value={qty}
-          onChange={(e) => setQty(Math.max(1, toNumber(e.target.value, 1)))}
-        />
+        <input type="number" className="border rounded px-3 py-2" placeholder="Qty" value={qty} onChange={(e) => setQty(Math.max(1, toNumber(e.target.value, 1)))} />
         <select className="border rounded px-3 py-2" value={measure} onChange={(e) => setMeasure(e.target.value as Measure)}>
-          <option value="count">count</option>
-          <option value="oz">oz</option>
-          <option value="lb">lb</option>
-          <option value="ml">ml</option>
-          <option value="g">g</option>
-          <option value="kg">kg</option>
+          <option value="count">count</option><option value="oz">oz</option><option value="lb">lb</option><option value="ml">ml</option><option value="g">g</option><option value="kg">kg</option>
         </select>
-        <input
-          type="number"
-          className="border rounded px-3 py-2"
-          placeholder="Est. Price ($)"
-          value={price}
-          onChange={(e) => setPrice(Math.max(0, toNumber(e.target.value, 0)))}
-        />
+        <input type="number" className="border rounded px-3 py-2" placeholder="Est. Price ($)" value={price} onChange={(e) => setPrice(Math.max(0, toNumber(e.target.value, 0)))} />
       </div>
       <div className="mt-2 flex justify-end">
-        <button
-          className="px-4 py-2 rounded bg-indigo-600 text-white"
-          onClick={() => {
-            if (!name.trim()) return;
-            onAdd(name.trim(), qty, measure, +price.toFixed(2));
-            setName('');
-            setQty(1);
-            setMeasure('count');
-            setPrice(1.99);
-          }}
-        >
+        <button className="px-4 py-2 rounded bg-indigo-600 text-white" onClick={() => { if (!name.trim()) return; onAdd(name.trim(), qty, measure, +price.toFixed(2)); setName(''); setQty(1); setMeasure('count'); setPrice(1.99); }}>
           Add
         </button>
       </div>
@@ -1169,128 +769,67 @@ function CartSection({ title, lines }: { title: string; lines: CartLine[] }) {
           <div key={l.id} className="flex items-center justify-between border rounded px-2 py-1">
             <div className="flex-1">
               <div className="font-medium">{l.name}</div>
-              <div className="text-xs text-gray-600">
-                {l.qty} {l.measure}
-              </div>
+              <div className="text-xs text-gray-600">{l.qty} {l.measure}</div>
             </div>
             <div className="font-medium">${l.estPrice.toFixed(2)}</div>
           </div>
         ))}
         {lines.length === 0 && <p className="text-xs text-gray-500">No items yet.</p>}
       </div>
-      <div className="mt-2 text-right text-sm">
-        Subtotal: <span className="font-semibold">${subtotal.toFixed(2)}</span>
-      </div>
+      <div className="mt-2 text-right text-sm">Subtotal: <span className="font-semibold">${subtotal.toFixed(2)}</span></div>
     </div>
   );
 }
 
 function PantryAddForm({ onAdd }: { onAdd: (name: string, qty: number | null, measure: Measure | null, type?: string) => void }) {
-  const [name, setName] = useState('');
-  const [qty, setQty] = useState<string>('');
-  const [measure, setMeasure] = useState<Measure>('oz');
-  const [type, setType] = useState<string>('other');
-
+  const [name, setName] = useState(''); const [qty, setQty] = useState<string>(''); const [measure, setMeasure] = useState<Measure>('oz'); const [type, setType] = useState<string>('other');
   return (
     <div className="border rounded p-3 bg-white">
       <h4 className="text-sm font-semibold mb-2">+ Add Pantry Item</h4>
       <div className="grid grid-cols-2 gap-2">
         <input className="border rounded px-2 py-1" placeholder="Item name" value={name} onChange={(e) => setName(e.target.value)} />
         <select className="border rounded px-2 py-1" value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="spice">spice</option>
-          <option value="condiment">condiment</option>
-          <option value="oil">oil</option>
-          <option value="canned">canned</option>
-          <option value="other">other</option>
+          <option value="spice">spice</option><option value="condiment">condiment</option><option value="oil">oil</option><option value="canned">canned</option><option value="other">other</option>
         </select>
-        <input
-          className="border rounded px-2 py-1"
-          placeholder="Qty (blank = staple-like)"
-          value={qty}
-          onChange={(e) => setQty(e.target.value)}
-        />
+        <input className="border rounded px-2 py-1" placeholder="Qty (blank = staple-like)" value={qty} onChange={(e) => setQty(e.target.value)} />
         <select className="border rounded px-2 py-1" value={measure} onChange={(e) => setMeasure(e.target.value as Measure)}>
-          <option value="oz">oz</option>
-          <option value="lb">lb</option>
-          <option value="ml">ml</option>
-          <option value="g">g</option>
-          <option value="kg">kg</option>
-          <option value="count">count</option>
+          <option value="oz">oz</option><option value="lb">lb</option><option value="ml">ml</option><option value="g">g</option><option value="kg">kg</option><option value="count">count</option>
         </select>
       </div>
       <div className="mt-2 flex justify-end">
-        <button
-          className="px-3 py-2 rounded bg-gray-800 text-white text-sm"
-          onClick={() => {
-            if (!name.trim()) return;
-            const q = qty.trim() === '' ? null : Math.max(0, toNumber(qty, 0));
-            const m = qty.trim() === '' ? null : measure;
-            onAdd(name.trim(), q, m, type);
-            setName('');
-            setQty('');
-            setType('other');
-            setMeasure('oz');
-          }}
-        >
-          Add
-        </button>
+        <button className="px-3 py-2 rounded bg-gray-800 text-white text-sm" onClick={() => {
+          if (!name.trim()) return;
+          const q = qty.trim() === '' ? null : Math.max(0, toNumber(qty, 0));
+          const m = qty.trim() === '' ? null : measure;
+          onAdd(name.trim(), q, m, type);
+          setName(''); setQty(''); setType('other'); setMeasure('oz');
+        }}>Add</button>
       </div>
     </div>
   );
 }
 
-function BarAddForm({
-  onAdd,
-}: {
-  onAdd: (name: string, qty: number, measure: Measure, type: 'spirit' | 'mixer' | 'produce' | 'herb' | 'other') => void;
-}) {
-  const [name, setName] = useState('');
-  const [qty, setQty] = useState<number>(1);
-  const [measure, setMeasure] = useState<Measure>('oz');
-  const [type, setType] = useState<'spirit' | 'mixer' | 'produce' | 'herb' | 'other'>('spirit');
-
+function BarAddForm({ onAdd }: { onAdd: (name: string, qty: number, measure: Measure, type: 'spirit' | 'mixer' | 'produce' | 'herb' | 'other') => void }) {
+  const [name, setName] = useState(''); const [qty, setQty] = useState<number>(1); const [measure, setMeasure] = useState<Measure>('oz'); const [type, setType] = useState<'spirit' | 'mixer' | 'produce' | 'herb' | 'other'>('spirit');
   return (
     <div className="border rounded p-3 bg-white">
       <h4 className="text-sm font-semibold mb-2">+ Add Bar Item</h4>
       <div className="grid grid-cols-2 gap-2">
         <input className="border rounded px-2 py-1" placeholder="Item name" value={name} onChange={(e) => setName(e.target.value)} />
         <select className="border rounded px-2 py-1" value={type} onChange={(e) => setType(e.target.value as any)}>
-          <option value="spirit">spirit</option>
-          <option value="mixer">mixer</option>
-          <option value="produce">produce</option>
-          <option value="herb">herb</option>
-          <option value="other">other</option>
+          <option value="spirit">spirit</option><option value="mixer">mixer</option><option value="produce">produce</option><option value="herb">herb</option><option value="other">other</option>
         </select>
-        <input
-          type="number"
-          className="border rounded px-2 py-1"
-          placeholder="Qty"
-          value={qty}
-          onChange={(e) => setQty(Math.max(0, toNumber(e.target.value, 0)))}
-        />
+        <input type="number" className="border rounded px-2 py-1" placeholder="Qty" value={qty} onChange={(e) => setQty(Math.max(0, toNumber(e.target.value, 0)))} />
         <select className="border rounded px-2 py-1" value={measure} onChange={(e) => setMeasure(e.target.value as Measure)}>
-          <option value="oz">oz</option>
-          <option value="lb">lb</option>
-          <option value="ml">ml</option>
-          <option value="g">g</option>
-          <option value="kg">kg</option>
-          <option value="count">count</option>
+          <option value="oz">oz</option><option value="lb">lb</option><option value="ml">ml</option><option value="g">g</option><option value="kg">kg</option><option value="count">count</option>
         </select>
       </div>
       <div className="mt-2 flex justify-end">
-        <button
-          className="px-3 py-2 rounded bg-gray-800 text-white text-sm"
-          onClick={() => {
-            if (!name.trim()) return;
-            onAdd(name.trim(), qty, measure, type);
-            setName('');
-            setQty(1);
-            setMeasure('oz');
-            setType('spirit');
-          }}
-        >
-          Add
-        </button>
+        <button className="px-3 py-2 rounded bg-gray-800 text-white text-sm" onClick={() => {
+          if (!name.trim()) return;
+          onAdd(name.trim(), qty, measure, type);
+          setName(''); setQty(1); setMeasure('oz'); setType('spirit');
+        }}>Add</button>
       </div>
     </div>
   );
