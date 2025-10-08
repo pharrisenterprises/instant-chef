@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'; // ADD THIS
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
