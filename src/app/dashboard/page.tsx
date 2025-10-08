@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import dynamic from 'next/dynamic';
 
 import N8NGenerate, {
   BasicInformation, HouseholdSetup, CookingPreferences,
