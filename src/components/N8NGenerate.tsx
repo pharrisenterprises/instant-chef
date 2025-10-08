@@ -1,170 +1,235 @@
-// src/components/N8NGenerate.tsx
-"use client";
+'use client';
 
-import { useState } from "react";
-import type { Profile, Weekly } from "@/lib/types";
+import { useState } from 'react';
 
-type Props = {
-  profile: Profile;
-  weekly: Weekly;
-  /** If your header already knows the selected email, pass it here (recommended). */
-  userEmailFromHeader?: string;
-  onSubmitted?: (result: any) => void;
+/** ---------- TYPES: mirror your wizard ---------- */
+export type BasicInformation = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  accountAddress: {
+    street: string;
+    city: string;
+    state: string;
+    zipcode: string;
+  };
 };
 
-function resolveEmail(opts: {
-  profile?: any;
-  weekly?: any;
-  userEmailFromHeader?: string;
-}): string | undefined {
-  const { profile, weekly, userEmailFromHeader } = opts;
+export type HouseholdSetup = {
+  adults: number;            // 18+
+  teens: number;             // 13–17
+  children: number;          // 5–12
+  toddlersInfants: number;   // 0–4
+  portionsPerDinner: number; // e.g. 4
+  dinnersPerWeek?: number;   // optional if you add later
+};
 
-  // 1) obvious places
-  const fromProfile =
-    profile?.basicInformation?.email ||
-    profile?.email ||
-    profile?.user?.email ||
-    undefined;
+export type CookingPreferences = {
+  cookingSkill: 'Beginner' | 'Intermediate' | 'Advanced' | string;
+  cookingTimePreference: string; // e.g. "30 min"
+  equipment: string[];           // e.g. ["Air fryer","Instant Pot",...]
+};
 
-  const fromWeekly = weekly?.email || undefined;
+export type DietaryProfile = {
+  allergiesRestrictions: string[]; // e.g. ["Dairy","Peanuts"]
+  dislikesAvoidList: string[];     // e.g. ["Mushrooms"]
+  dietaryPrograms: string[];       // e.g. ["Keto","Diabetic"]
+  notes?: string;                   // free text disclaimer/notes if you keep it
+};
 
-  // 2) header dropdown / input (add one of these attributes to your header control)
-  const fromHeaderDom = (() => {
-    const sel =
-      (document.querySelector("[data-user-email]") as HTMLInputElement | HTMLSelectElement | null) ||
-      (document.querySelector("#user-email") as HTMLInputElement | HTMLSelectElement | null) ||
-      (document.querySelector('[name="user-email"]') as HTMLInputElement | HTMLSelectElement | null);
+export type ShoppingPreferences = {
+  storesNearMe?: string[];           // list if you capture multiple
+  preferredGroceryStore?: string;    // single favorite
+  preferOrganic?: 'I dont care' | 'Yes' | 'No' | string;
+  preferNationalBrands?: 'Yes' | 'No' | 'No preference' | string;
+};
 
-    const v =
-      (sel && ("value" in sel ? sel.value : (sel as any).textContent))?.trim() || "";
+export type ClientPayload = {
+  basicInformation: BasicInformation;
+  householdSetup: HouseholdSetup;
+  cookingPreferences: CookingPreferences;
+  dietaryProfile: DietaryProfile;
+  shoppingPreferences: ShoppingPreferences;
 
-    return v.includes("@") ? v : undefined;
-  })();
+  /** for anything you add later without changing this file */
+  extra?: Record<string, any>;
+};
 
-  // 3) localStorage fallbacks (set once when user chooses email in header)
-  const fromLS =
-    (typeof window !== "undefined" && (localStorage.getItem("ic.email") || localStorage.getItem("ic.userEmail") || localStorage.getItem("ic.profile.email"))) ||
-    undefined;
+/** ---------- RESULT TYPES (from n8n) ---------- */
+type MenuDay = { day: number; meals: { name: string; ingredients: string[]; instructions?: string }[] };
+type Menu = { title: string; days: MenuDay[] };
+type MenuCard = { name: string; imageUrl: string; prepTime?: number; calories?: number };
+type HeroImage = { type: string; imageUrl: string };
+type Receipt = { ingredients: { name: string; qty: string }[]; estimatedTotal: number; currency: string };
 
-  return (
-    fromProfile ||
-    userEmailFromHeader ||
-    fromWeekly ||
-    fromHeaderDom ||
-    (fromLS && fromLS.includes("@") ? fromLS : undefined)
-  );
+type Results = {
+  status: 'pending' | 'done' | 'error';
+  correlationId?: string;
+  menus?: Menu[];
+  menuCards?: MenuCard[];
+  heroImages?: HeroImage[];
+  receipt?: Receipt;
+  error?: string;
+};
+
+/** ---------- HELPERS ---------- */
+async function startJob(client: ClientPayload) {
+  const res = await fetch('/api/n8n/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client, // send everything under client
+      generate: { menus: true, heroImages: true, menuCards: true, receipt: true }
+    })
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(()=>'');
+    throw new Error(`Failed to start job: ${txt || res.status}`);
+  }
+  const json = await res.json();
+  return json.correlationId as string;
 }
 
-export default function N8NGenerate({
-  profile,
-  weekly,
-  userEmailFromHeader,
-  onSubmitted,
-}: Props) {
-  const [loading, setLoading] = useState(false);
-  if (!finalEmail) {
-    const acct = document.querySelector('input[type="email"]') as HTMLInputElement | null;
-    const guess = acct?.value?.trim();
-    if (guess?.includes("@")) {
-      try { localStorage.setItem("ic.email", guess); } catch {}
-    }
-  }
+async function getResults(correlationId: string) {
+  const res = await fetch(`/api/n8n/callback?cid=${encodeURIComponent(correlationId)}`, { cache: 'no-store' });
+  const data = await res.json();
+  return data as Results;
+}
 
-  async function submitToN8N() {
+/** ---------- COMPONENT ---------- */
+export default function N8NGenerate({ client }: { client: ClientPayload }) {
+  const [status, setStatus] = useState<'idle'|'working'|'done'|'error'>('idle');
+  const [data, setData] = useState<Results | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = async () => {
     try {
-      setLoading(true);
+      setErr(null);
+      setStatus('working');
 
-      const email = resolveEmail({ profile, weekly, userEmailFromHeader });
-      if (!email) {
-        // Last-ditch: try to read any visible SELECT in the header
-        const anyHeaderSelect = document.querySelector("header select") as HTMLSelectElement | null;
-        const guess = anyHeaderSelect?.value?.trim();
-        if (guess && guess.includes("@")) {
-          localStorage.setItem("ic.email", guess);
-        }
+      // 1) tell server to kick off n8n
+      const cid = await startJob(client);
+
+      // 2) poll for results
+      let last: Results | null = null;
+      // simple backoff: 2s x 90 ~ 3 minutes; adjust as you like
+      for (let i = 0; i < 90; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const r = await getResults(cid);
+        last = r;
+        if (r.status === 'done' || r.status === 'error') break;
       }
 
-      const finalEmail = email || localStorage.getItem("ic.email") || "";
-      if (!finalEmail) {
-        setLoading(false);
-        alert("Email is required to submit. Tip: add data-user-email to your header email dropdown and we’ll read it automatically.");
-        return;
-      }
-
-      // Save for future runs
-      try {
-        localStorage.setItem("ic.email", finalEmail);
-      } catch {}
-
-      // Build the weekly portion of the payload (the server will merge profile from Supabase)
-      const body = {
-        email: finalEmail,
-        weekly: {
-          portionsPerDinner:
-            (profile as any)?.portionDefault ??
-            (weekly as any)?.portionsPerDinner ??
-            0,
-          dinnersPerWeek:
-            (weekly as any)?.dinners ??
-            (weekly as any)?.dinnersPerWeek ??
-            0,
-          preferredGroceryStore:
-            (profile as any)?.store ??
-            (weekly as any)?.preferredGroceryStore ??
-            undefined,
-          preferOrganic:
-            (profile as any)?.preferOrganic ??
-            (weekly as any)?.preferOrganic,
-          preferNationalBrands:
-            (profile as any)?.preferNationalBrands ??
-            (weekly as any)?.preferNationalBrands,
-          weeklyMood: (weekly as any)?.mood ?? "",
-          weeklyExtras: (weekly as any)?.extras ?? "",
-          weeklyOnHandText: (weekly as any)?.onHandText ?? "",
-          pantrySnapshot: (weekly as any)?.pantrySnapshot ?? [],
-          barSnapshot: (weekly as any)?.barSnapshot ?? [],
-          currentMenusCount: (weekly as any)?.currentMenusCount ?? 0,
-        },
-        generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
-        correlationId:
-          (typeof crypto !== "undefined" && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : `corr-${Date.now()}`,
-        callbackUrl: `${window.location.origin}/api/n8n/callback`,
-      };
-
-      const resp = await fetch("/api/n8n/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const json = await resp.json();
-      if (!resp.ok || !json?.ok) {
-        console.error("n8n forward failed:", json);
-        alert("Could not submit to n8n. Check console for details.");
-        setLoading(false);
-        return;
-      }
-
-      onSubmitted?.(json);
-      setLoading(false);
-    } catch (err) {
-      console.error(err);
-      alert("Unexpected error while submitting to n8n.");
-      setLoading(false);
+      if (!last) throw new Error('No response received');
+      setData(last);
+      setStatus(last.status === 'done' ? 'done' : 'error');
+    } catch (e: any) {
+      setErr(e?.message || 'Something went wrong');
+      setStatus('error');
     }
-  }
+  };
 
   return (
-    <div className="flex gap-3 justify-end">
+    <div className="space-y-6">
       <button
-        onClick={submitToN8N}
-        disabled={loading}
-        className="px-5 py-2 rounded bg-black text-white disabled:opacity-60"
+        onClick={run}
+        className="px-4 py-2 rounded-lg bg-black text-white hover:opacity-90 disabled:opacity-50"
+        disabled={status === 'working'}
       >
-        {loading ? "Submitting…" : "Generate Menu"}
+        {status === 'working' ? 'Cooking your menu…' : 'Generate Menu'}
       </button>
+
+      {err && <div className="text-red-600 text-sm">{err}</div>}
+
+      {/* Results */}
+      {status === 'done' && data?.status === 'done' && (
+        <div className="space-y-8">
+          {/* Hero images */}
+          {data.heroImages?.length ? (
+            <section>
+              <h3 className="text-xl font-semibold mb-2">Hero Images</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {data.heroImages.map((img, i) => (
+                  <img key={i} src={img.imageUrl} alt={img.type || `hero-${i}`} className="w-full h-48 object-cover rounded-xl border" />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {/* Menus */}
+          {data.menus?.length ? (
+            <section>
+              <h3 className="text-xl font-semibold mb-2">Weekly Menus</h3>
+              <div className="space-y-4">
+                {data.menus.map((menu, i) => (
+                  <div key={i} className="rounded-xl border p-4">
+                    <h4 className="font-semibold mb-2">{menu.title}</h4>
+                    <div className="space-y-2">
+                      {menu.days.map(day => (
+                        <div key={day.day} className="pl-2">
+                          <div className="font-medium">Day {day.day}</div>
+                          <ul className="list-disc pl-6">
+                            {day.meals.map((m, j) => (
+                              <li key={j}>
+                                <span className="font-medium">{m.name}</span>
+                                {m.ingredients?.length ? (
+                                  <span className="block text-sm text-gray-600">
+                                    Ingredients: {m.ingredients.join(', ')}
+                                  </span>
+                                ) : null}
+                                {m.instructions ? (
+                                  <span className="block text-sm text-gray-600">How: {m.instructions}</span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {/* Menu cards */}
+          {data.menuCards?.length ? (
+            <section>
+              <h3 className="text-xl font-semibold mb-2">Menu Cards</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {data.menuCards.map((c, i) => (
+                  <div key={i} className="rounded-xl border overflow-hidden">
+                    <img src={c.imageUrl} alt={c.name} className="w-full h-40 object-cover" />
+                    <div className="p-3">
+                      <div className="font-medium">{c.name}</div>
+                      <div className="text-sm text-gray-600">
+                        {c.prepTime ? `Prep: ${c.prepTime} min` : ''}{c.prepTime && c.calories ? ' · ' : ''}{c.calories ? `${c.calories} cal` : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {/* Receipt */}
+          {data.receipt ? (
+            <section>
+              <h3 className="text-xl font-semibold mb-2">Shopping List</h3>
+              <div className="rounded-xl border p-4 space-y-2">
+                <ul className="list-disc pl-6">
+                  {data.receipt.ingredients.map((it, i) => (
+                    <li key={i}>{it.name} — {it.qty}</li>
+                  ))}
+                </ul>
+                <div className="font-medium">
+                  Estimated Total: {data.receipt.estimatedTotal} {data.receipt.currency}
+                </div>
+              </div>
+            </section>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
