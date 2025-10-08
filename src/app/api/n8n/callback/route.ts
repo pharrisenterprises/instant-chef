@@ -1,33 +1,36 @@
+// src/app/api/n8n/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+// 1) make sure Next doesn't cache this route
+export const dynamic = "force-dynamic"; // no static optimization
 
-const STORE = globalThis as unknown as { __IC_RESULTS?: Map<string, any> };
-if (!STORE.__IC_RESULTS) STORE.__IC_RESULTS = new Map<string, any>();
+// 2) simple in-memory store (OK for local/testing)
+const store: Map<string, any> =
+  (globalThis as any).__IC_STORE__ || new Map<string, any>();
+(globalThis as any).__IC_STORE__ = store;
+
+// 3) if later you use Node-only APIs (crypto, fs), uncomment this:
+// export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  try {
-    const url = new URL(req.url);
-    const cidUrl = url.searchParams.get("cid");
-    const body = await req.json().catch(() => ({}));
-    const cid = cidUrl || body?.correlationId;
-    if (!cid) return NextResponse.json({ error: "missing correlation id" }, { status: 400 });
+  const data = await req.json();
+  const cid = data?.correlationId;
+  if (!cid) return NextResponse.json({ error: "missing correlationId" }, { status: 400 });
 
-    STORE.__IC_RESULTS!.set(cid, { ok: true, status: "done", result: body });
-    console.log("[/api/n8n/callback] stored", cid);
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "bad request" }, { status: 400 });
-  }
+  store.set(cid, { status: "done", ...data });
+
+  return NextResponse.json({ ok: true }, {
+    headers: { "Cache-Control": "no-store" }
+  });
 }
 
+// Helper: GET /api/n8n/callback?cid=...
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const cid = url.searchParams.get("cid");
-  if (!cid) return NextResponse.json({ error: "missing correlation id" }, { status: 400 });
+  const cid = req.nextUrl.searchParams.get("cid");
+  if (!cid) return NextResponse.json({ error: "missing cid" }, { status: 400 });
 
-  const val = STORE.__IC_RESULTS!.get(cid);
-  if (!val) return new NextResponse("", { status: 204 });
-  return NextResponse.json(val);
+  const data = store.get(cid) ?? { status: "pending" };
+  return NextResponse.json(data, {
+    headers: { "Cache-Control": "no-store" }
+  });
 }
