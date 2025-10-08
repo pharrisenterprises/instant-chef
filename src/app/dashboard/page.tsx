@@ -11,7 +11,7 @@ import N8NGenerate, {
   DietaryProfile,
   ShoppingPreferences,
   ClientPayload,
-} from '../../components/N8NGenerate';
+} from '@/components/N8NGenerate';
 
 /* -------------------- LocalStorage keys -------------------- */
 const LS = {
