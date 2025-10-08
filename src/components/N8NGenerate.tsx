@@ -7,11 +7,53 @@ import type { Profile, Weekly } from "@/lib/types";
 type Props = {
   profile: Profile;
   weekly: Weekly;
-  /** Optional: if you show the signed-in email in the header, pass it here */
+  /** If your header already knows the selected email, pass it here (recommended). */
   userEmailFromHeader?: string;
-  /** Optional callback after a successful submit */
   onSubmitted?: (result: any) => void;
 };
+
+function resolveEmail(opts: {
+  profile?: any;
+  weekly?: any;
+  userEmailFromHeader?: string;
+}): string | undefined {
+  const { profile, weekly, userEmailFromHeader } = opts;
+
+  // 1) obvious places
+  const fromProfile =
+    profile?.basicInformation?.email ||
+    profile?.email ||
+    profile?.user?.email ||
+    undefined;
+
+  const fromWeekly = weekly?.email || undefined;
+
+  // 2) header dropdown / input (add one of these attributes to your header control)
+  const fromHeaderDom = (() => {
+    const sel =
+      (document.querySelector("[data-user-email]") as HTMLInputElement | HTMLSelectElement | null) ||
+      (document.querySelector("#user-email") as HTMLInputElement | HTMLSelectElement | null) ||
+      (document.querySelector('[name="user-email"]') as HTMLInputElement | HTMLSelectElement | null);
+
+    const v =
+      (sel && ("value" in sel ? sel.value : (sel as any).textContent))?.trim() || "";
+
+    return v.includes("@") ? v : undefined;
+  })();
+
+  // 3) localStorage fallbacks (set once when user chooses email in header)
+  const fromLS =
+    (typeof window !== "undefined" && (localStorage.getItem("ic.email") || localStorage.getItem("ic.userEmail") || localStorage.getItem("ic.profile.email"))) ||
+    undefined;
+
+  return (
+    fromProfile ||
+    userEmailFromHeader ||
+    fromWeekly ||
+    fromHeaderDom ||
+    (fromLS && fromLS.includes("@") ? fromLS : undefined)
+  );
+}
 
 export default function N8NGenerate({
   profile,
@@ -21,59 +63,62 @@ export default function N8NGenerate({
 }: Props) {
   const [loading, setLoading] = useState(false);
 
-  // ---- NEW: server-routed submit that merges Account Profile from Supabase ----
   async function submitToN8N() {
     try {
       setLoading(true);
 
-      // Prefer the profile email; fall back to header if provided
-      const email =
-        // some codebases keep email at profile.basicInformation.email; others at profile.email
-        (profile as any)?.basicInformation?.email ||
-        (profile as any)?.email ||
-        userEmailFromHeader ||
-        "";
-
+      const email = resolveEmail({ profile, weekly, userEmailFromHeader });
       if (!email) {
-        alert("Email is required to submit.");
+        // Last-ditch: try to read any visible SELECT in the header
+        const anyHeaderSelect = document.querySelector("header select") as HTMLSelectElement | null;
+        const guess = anyHeaderSelect?.value?.trim();
+        if (guess && guess.includes("@")) {
+          localStorage.setItem("ic.email", guess);
+        }
+      }
+
+      const finalEmail = email || localStorage.getItem("ic.email") || "";
+      if (!finalEmail) {
         setLoading(false);
+        alert("Email is required to submit. Tip: add data-user-email to your header email dropdown and we’ll read it automatically.");
         return;
       }
 
-      // Map your current UI state shape to the server’s expected "weekly" shape.
-      // - WeeklyPlanner uses: weekly.dinners, weekly.onHandText, weekly.mood, weekly.extras
-      // - Profile carries: portionDefault (portions per dinner), store (preferred grocery store)
+      // Save for future runs
+      try {
+        localStorage.setItem("ic.email", finalEmail);
+      } catch {}
+
+      // Build the weekly portion of the payload (the server will merge profile from Supabase)
       const body = {
-        email,
+        email: finalEmail,
         weekly: {
           portionsPerDinner:
-            (profile as any)?.portionDefault ?? (weekly as any)?.portionsPerDinner ?? 0,
-          dinnersPerWeek: (weekly as any)?.dinners ?? (weekly as any)?.dinnersPerWeek ?? 0,
-
+            (profile as any)?.portionDefault ??
+            (weekly as any)?.portionsPerDinner ??
+            0,
+          dinnersPerWeek:
+            (weekly as any)?.dinners ??
+            (weekly as any)?.dinnersPerWeek ??
+            0,
           preferredGroceryStore:
             (profile as any)?.store ??
             (weekly as any)?.preferredGroceryStore ??
             undefined,
-
-          // If you track these in profile/weekly, pass them through. Otherwise undefined is fine.
-          preferOrganic: (profile as any)?.preferOrganic ?? (weekly as any)?.preferOrganic,
+          preferOrganic:
+            (profile as any)?.preferOrganic ??
+            (weekly as any)?.preferOrganic,
           preferNationalBrands:
-            (profile as any)?.preferNationalBrands ?? (weekly as any)?.preferNationalBrands,
-
+            (profile as any)?.preferNationalBrands ??
+            (weekly as any)?.preferNationalBrands,
           weeklyMood: (weekly as any)?.mood ?? "",
           weeklyExtras: (weekly as any)?.extras ?? "",
           weeklyOnHandText: (weekly as any)?.onHandText ?? "",
-
-          // If your Weekly state already holds these snapshots, they’ll flow through.
           pantrySnapshot: (weekly as any)?.pantrySnapshot ?? [],
           barSnapshot: (weekly as any)?.barSnapshot ?? [],
           currentMenusCount: (weekly as any)?.currentMenusCount ?? 0,
         },
-
-        // You can tweak these flags as needed
         generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
-
-        // Correlation + callback to track async n8n work
         correlationId:
           (typeof crypto !== "undefined" && crypto.randomUUID)
             ? crypto.randomUUID()
@@ -97,7 +142,6 @@ export default function N8NGenerate({
 
       onSubmitted?.(json);
       setLoading(false);
-      // Optional UX: toast/snackbar here
     } catch (err) {
       console.error(err);
       alert("Unexpected error while submitting to n8n.");
