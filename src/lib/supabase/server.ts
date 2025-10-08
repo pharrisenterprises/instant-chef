@@ -1,25 +1,34 @@
 // src/lib/supabase/server.ts
-import { cookies } from 'next/headers'
-import { createServerClient } from '@supabase/ssr' // if you use auth-helpers, this stays the same
+import { cookies } from "next/headers";
+import { createServerClient as _createServerClient, type CookieOptions } from "@supabase/ssr";
 
 export function createClient() {
-  const cookieStore = cookies()
+  const cookieStore = cookies();
 
-  return createServerClient(
+  return _createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
-          return cookieStore.get(name)?.value
+        get(name: string) {
+          return cookieStore.get(name)?.value;
         },
-        set(name, value, options) {
-          cookieStore.set(name, value, options)
+        set(name: string, value: string, options: CookieOptions) {
+          // Next's cookies API is write-only during the request lifecycle
+          try {
+            cookieStore.set({ name, value, ...options });
+          } catch {
+            /* no-op for Route Handlers */
+          }
         },
-        remove(name, options) {
-          cookieStore.set(name, '', { ...options, maxAge: -1 })
+        remove(name: string, options: CookieOptions) {
+          try {
+            cookieStore.set({ name, value: "", ...options });
+          } catch {
+            /* no-op */
+          }
         },
       },
     }
-  )
+  );
 }

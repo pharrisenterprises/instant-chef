@@ -1,45 +1,40 @@
 // src/app/api/n8n/trigger/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { headers, cookies } from "next/headers";
+import { createClient as createAdmin } from "@supabase/supabase-js";
 import crypto from "crypto";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { createClient as createServerClient } from "@/lib/supabase/server";
 
-// If you already have a server helper that can read the auth cookie (anon client), use it:
-import { createClient as createServerClient } from "@/lib/supabase/server"; // <— your existing wrapper
-
-// ---------------- ENV ----------------
+// ==== ENV ====
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; // required (Server only)
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; // must be set in Vercel
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL!;
 
-const admin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+const admin = createAdmin(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// ---------------- TYPES ----------------
-type Basic = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  accountAddress?: { street?: string; city?: string; state?: string; zipcode?: string };
+// If your table has a single fixed name, set it here:
+const PROFILE_TABLE = "profiles"; // <— change if your table is named differently
+
+// ==== helpers ====
+const splitCSV = (v?: string) =>
+  (v || "").split(",").map((s) => s.trim()).filter(Boolean);
+
+const namesFromEmail = (email?: string) => {
+  const handle = (email || "").split("@")[0] || "";
+  const clean = handle.replace(/[._-]+/g, " ").trim();
+  if (!clean) return { firstName: "", lastName: "" };
+  const p = clean.split(/\s+/);
+  return p.length === 1
+    ? { firstName: p[0], lastName: "" }
+    : { firstName: p[0], lastName: p.slice(1).join(" ") };
 };
 
-type ClientPayload = {
-  basicInformation?: Partial<Basic>;
-  householdSetup?: any;
-  cookingPreferences?: any;
-  dietaryProfile?: any;
-  shoppingPreferences?: any;
-  extra?: any;
-};
-
-type Incoming = {
-  client?: ClientPayload;
-  generate?: any;
-};
-
-// ---------------- HELPERS ----------------
-const TABLES = ["profiles", "client_profiles", "ic_accounts", "accounts", "users"]; // keep only the one you use if you prefer
+function merge<A extends object, B extends object>(a?: A, b?: B) {
+  // a (incoming client) wins; b (DB) fills gaps
+  return { ...(b || {}), ...(a || {}) };
+}
 
 function buildCallbackUrl() {
   const explicit = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/+$/, "");
@@ -50,50 +45,19 @@ function buildCallbackUrl() {
   return `${proto}://${host}/api/n8n/callback`;
 }
 
-function merge<A extends object, B extends object>(a?: A, b?: B) {
-  // a (incoming client) wins; b (DB) fills gaps
-  return { ...(b || {}), ...(a || {}) };
-}
-
-function splitCSV(v?: string) {
-  return (v || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function namesFromEmail(email?: string) {
-  const handle = (email || "").split("@")[0] || "";
-  const cleaned = handle.replace(/[._-]+/g, " ").trim();
-  if (!cleaned) return { firstName: "", lastName: "" };
-  const p = cleaned.split(/\s+/);
-  return p.length === 1 ? { firstName: p[0], lastName: "" } : { firstName: p[0], lastName: p.slice(1).join(" ") };
-}
-
-function mapRowToClient(row: any): Partial<ClientPayload> {
+// Map your profile row -> n8n client sections
+function rowToClient(row: any) {
   if (!row) return {};
 
-  const firstName = row.first_name ?? row.firstName ?? row.given_name ?? "";
-  const lastName = row.last_name ?? row.lastName ?? row.family_name ?? "";
-  const email = row.email ?? row.user_email ?? "";
-  
-  const address =
-    row.address || {
-      street: row.address_street ?? row.street ?? "",
-      city: row.address_city ?? row.city ?? "",
-      state: row.address_state ?? row.state ?? "",
-      zipcode: row.address_zipcode ?? row.zip ?? row.zipcode ?? "",
-    };
-
-  const basicInformation: Partial<Basic> = {
-    firstName,
-    lastName,
-    email,
+  const basicInformation = {
+    firstName: row.first_name ?? row.firstName ?? "",
+    lastName: row.last_name ?? row.lastName ?? "",
+    email: row.email ?? row.user_email ?? "",
     accountAddress: {
-      street: address?.street ?? "",
-      city: address?.city ?? "",
-      state: address?.state ?? "",
-      zipcode: address?.zipcode ?? "",
+      street: row.address_street ?? row.street ?? row.address?.street ?? "",
+      city: row.address_city ?? row.city ?? row.address?.city ?? "",
+      state: row.address_state ?? row.state ?? row.address?.state ?? "",
+      zipcode: row.address_zipcode ?? row.zip ?? row.zipcode ?? row.address?.zipcode ?? "",
     },
   };
 
@@ -122,113 +86,107 @@ function mapRowToClient(row: any): Partial<ClientPayload> {
   const shoppingPreferences = {
     storesNearMe: Array.isArray(row.stores_nearby) ? row.stores_nearby : splitCSV(row.stores_nearby),
     preferredGroceryStore: row.preferred_store ?? row.grocery_store ?? "",
-    preferOrganic: row.organic_preference ?? row.prefer_organic ?? "",
-    preferNationalBrands: row.brand_preference ?? row.prefer_national_brands ?? "",
+    preferOrganic: row.organic_preference ?? row.prefer_organic ?? "I dont care",
+    preferNationalBrands: row.brand_preference ?? row.prefer_national_brands ?? "No preference",
   };
 
-  return { basicInformation, householdSetup, cookingPreferences, dietaryProfile, shoppingPreferences };
+  return {
+    basicInformation,
+    householdSetup,
+    cookingPreferences,
+    dietaryProfile,
+    shoppingPreferences,
+  };
 }
 
-async function fetchProfileBy({ userId, email }: { userId?: string; email?: string }) {
-  for (const table of TABLES) {
-    try {
-      if (userId) {
-        const { data, error } = await admin.from(table).select("*").eq("user_id", userId).limit(1);
-        if (!error && data?.length) return data[0];
-      }
-      if (email) {
-        const { data, error } = await admin.from(table).select("*").eq("email", email).limit(1);
-        if (!error && data?.length) return data[0];
-      }
-    } catch {
-      // try next table
-    }
-  }
-  return null;
-}
-
-// ---------------- ROUTE ----------------
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const incoming = (await req.json().catch(() => ({}))) as Incoming;
-    const clientIn = incoming.client || {};
+    const body = (await req.json().catch(() => ({}))) as {
+      client?: any;
+      generate?: any;
+    };
 
-    // 1) Get the authenticated user (from cookies) via your server anon client
-    const server = createServerClient(cookies());
-    const { data: userData } = await server.auth.getUser().catch(() => ({ data: null as any }));
+    const clientIn = body.client || {};
+
+    // 1) Identify the signed-in user from Supabase auth cookie (SSR anon client)
+    const supa = createServerClient();
+    const { data: userData } = await supa.auth.getUser().catch(() => ({ data: null as any }));
     const authUser = userData?.user;
 
-    // Candidate identifiers
-    const userId: string | undefined =
-      (clientIn as any)?.extra?.userId ||
-      authUser?.id ||
-      undefined;
-
+    // Prefer IDs from auth; also accept any client-sent hint in extra
+    const userId: string | undefined = clientIn?.extra?.userId || authUser?.id || undefined;
     let email: string =
-      (clientIn.basicInformation?.email || "").trim() ||
+      (clientIn?.basicInformation?.email || "").trim() ||
       (authUser?.email || authUser?.user_metadata?.email || "").trim();
 
-    // 2) Pull profile row by userId/email using Service Role
-    const row = await fetchProfileBy({ userId, email });
+    // 2) Fetch the profile row from your Supabase table using SERVICE ROLE
+    let row: any = null;
+    if (userId) {
+      const { data } = await admin.from(PROFILE_TABLE).select("*").eq("user_id", userId).limit(1);
+      row = data?.[0] ?? null;
+    }
+    if (!row && email) {
+      const { data } = await admin.from(PROFILE_TABLE).select("*").eq("email", email).limit(1);
+      row = data?.[0] ?? null;
+    }
 
-    // 3) Map DB row to our pieces and derive names if still missing
-    const fromDb = mapRowToClient(row);
-
-    if (!email && (fromDb.basicInformation?.email || (row as any)?.email)) {
-      email = (fromDb.basicInformation?.email || (row as any)?.email || "").trim();
+    // 3) Map DB row and derive names if needed
+    const fromDb = rowToClient(row);
+    if (!email && (fromDb as any)?.basicInformation?.email) {
+      email = (fromDb as any).basicInformation.email;
     }
     const derived = namesFromEmail(email);
 
-    const basicMerged: Partial<Basic> = {
-      email,
-      firstName: (clientIn.basicInformation?.firstName ||
-        fromDb.basicInformation?.firstName ||
-        derived.firstName ||
-        "").trim(),
-      lastName: (clientIn.basicInformation?.lastName ||
-        fromDb.basicInformation?.lastName ||
-        derived.lastName ||
-        "").trim(),
-    };
-
-    // 4) Final client = clientIn wins, DB fills gaps
-    const client: ClientPayload = {
+    // 4) Build final client payload (client values win)
+    const client = {
       ...clientIn,
-      basicInformation: merge(clientIn.basicInformation, { ...fromDb.basicInformation, ...basicMerged }),
-      householdSetup: merge(clientIn.householdSetup, fromDb.householdSetup),
-      cookingPreferences: merge(clientIn.cookingPreferences, fromDb.cookingPreferences),
-      dietaryProfile: merge(clientIn.dietaryProfile, fromDb.dietaryProfile),
-      shoppingPreferences: merge(clientIn.shoppingPreferences, fromDb.shoppingPreferences),
+      basicInformation: merge(clientIn.basicInformation, {
+        ...(fromDb as any).basicInformation,
+        email,
+        firstName:
+          clientIn?.basicInformation?.firstName ||
+          (fromDb as any)?.basicInformation?.firstName ||
+          derived.firstName ||
+          "",
+        lastName:
+          clientIn?.basicInformation?.lastName ||
+          (fromDb as any)?.basicInformation?.lastName ||
+          derived.lastName ||
+          "",
+      }),
+      householdSetup: merge(clientIn.householdSetup, (fromDb as any).householdSetup),
+      cookingPreferences: merge(clientIn.cookingPreferences, (fromDb as any).cookingPreferences),
+      dietaryProfile: merge(clientIn.dietaryProfile, (fromDb as any).dietaryProfile),
+      shoppingPreferences: merge(clientIn.shoppingPreferences, (fromDb as any).shoppingPreferences),
     };
 
     // 5) Forward to n8n
     if (!N8N_WEBHOOK_URL) {
       return NextResponse.json({ ok: false, error: "N8N_WEBHOOK_URL is not set" }, { status: 500 });
     }
-
     const correlationId = crypto.randomUUID();
     const callbackUrl = buildCallbackUrl();
 
-    const payload = {
+    const forwardBody = {
       client,
-      generate: incoming.generate || { menus: true, heroImages: true, menuCards: true, receipt: true },
+      generate: body.generate || { menus: true, heroImages: true, menuCards: true, receipt: true },
       correlationId,
       callbackUrl,
     };
 
-    const f = await fetch(N8N_WEBHOOK_URL, {
+    const res = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(forwardBody),
     });
 
-    if (!f.ok) {
-      const text = await f.text().catch(() => "");
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
       return NextResponse.json(
-        { ok: false, error: `n8n error ${f.status}`, details: text?.slice(0, 2000) },
+        { ok: false, error: `n8n error ${res.status}`, details: txt?.slice(0, 2000) },
         { status: 502 }
       );
     }
