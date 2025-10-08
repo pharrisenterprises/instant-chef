@@ -2,29 +2,17 @@
 
 import React from "react";
 
-// Keep the prop types broad so you don't have to refactor parent
 type WeeklyPlannerProps = {
-  profile?: any;
   weekly?: any;
-  setProfile?: (v: any) => void;
   setWeekly?: (v: any) => void;
 
-  // image handlers can stay as-is even if unused here
   handleImageToDataUrl?: (file: File, setter: (v?: string) => void) => void;
   onHandPreview?: string | null;
   setOnHandPreview?: (v: string | null) => void;
   submitOnHandImage?: () => Promise<void>;
 
-  // 👇 THIS is the only way we generate now
+  // Required
   generateMenus: () => Promise<void>;
-
-  // other sections/state (left intact to avoid parent changes)
-  menus?: any[];
-  setMenus?: (v: any) => void;
-  approvedMenus?: any[];
-  setApprovedMenus?: (v: any) => void;
-  cart?: any[];
-  setCart?: (v: any) => void;
 };
 
 export default function WeeklyPlannerSection(props: WeeklyPlannerProps) {
@@ -38,14 +26,12 @@ export default function WeeklyPlannerSection(props: WeeklyPlannerProps) {
     generateMenus,
   } = props;
 
-  // Minimal UI: keep your existing form fields; the ONLY critical change is the button
   return (
     <section className="rounded-2xl border p-4 space-y-4">
       <header className="flex items-center justify-between">
         <h2 className="font-semibold text-lg">Weekly Planner</h2>
       </header>
 
-      {/* Example inputs — keep yours as they are; these are placeholders */}
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="text-sm">
           Dinners this week
@@ -82,12 +68,12 @@ export default function WeeklyPlannerSection(props: WeeklyPlannerProps) {
             onChange={(e) =>
               setWeekly?.((w: any) => ({ ...(w || {}), onHandCsv: e.target.value }))
             }
-            placeholder="chicken, rice, tomatoes"
+            placeholder="4 roma tomatoes, 2 lb chicken thighs, 3 bell peppers, 4 oz truffle oil"
           />
         </label>
 
         <label className="text-sm">
-          Mood
+          What are you in the mood for?
           <input
             className="mt-1 w-full rounded border px-3 py-2"
             type="text"
@@ -97,17 +83,16 @@ export default function WeeklyPlannerSection(props: WeeklyPlannerProps) {
         </label>
 
         <label className="text-sm">
-          Extras
+          Anything else to see (e.g., Italian, Ribeye)?
           <input
             className="mt-1 w-full rounded border px-3 py-2"
             type="text"
-            value={weekly?.extras ?? ""}
-            onChange={(e) => setWeekly?.((w: any) => ({ ...(w || {}), extras: e.target.value }))}
+            value={weekly?.cuisineWish ?? ""}
+            onChange={(e) => setWeekly?.((w: any) => ({ ...(w || {}), cuisineWish: e.target.value }))}
           />
         </label>
       </div>
 
-      {/* If you have image upload for on-hand parsing, keep it wired */}
       {handleImageToDataUrl && setOnHandPreview && (
         <div className="flex items-center gap-3">
           <input
@@ -136,11 +121,8 @@ export default function WeeklyPlannerSection(props: WeeklyPlannerProps) {
         </div>
       )}
 
-      {/* 👇 THIS BUTTON NOW CALLS THE PARENT'S generateMenus() ONLY */}
       <div>
-        <button
-          onClick={generateMenus}
-          className="px-4 py-2 rounded bg-emerald-600 text-white">
+        <button onClick={generateMenus} className="px-4 py-2 rounded bg-emerald-600 text-white">
           Generate Menu
         </button>
       </div>
