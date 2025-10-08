@@ -1,83 +1,135 @@
+// src/app/api/n8n/trigger/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { cookies, headers } from "next/headers";
+import { createClient } from "@/lib/supabase/server"; // existing helper
 import crypto from "crypto";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+type BasicInfo = {
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
+type ClientPayload = {
+  basicInformation?: Partial<BasicInfo>;
+  [k: string]: any; // rest of client shape
+};
+
+function splitName(full: string | null | undefined) {
+  const safe = (full ?? "").trim();
+  if (!safe) return { firstName: "", lastName: "" };
+  const parts = safe.split(/\s+/);
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
+function namesFromEmail(email?: string) {
+  if (!email) return { firstName: "", lastName: "" };
+  const handle = email.split("@")[0] ?? "";
+  const clean = handle.replace(/[._-]+/g, " ").trim();
+  const parts = clean.split(/\s+/);
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
+function coerceBasicInfo(input?: Partial<BasicInfo>, userMeta?: { email?: string; full_name?: string }) {
+  const email = (input?.email || userMeta?.email || "").trim();
+  let firstName = (input?.firstName || "").trim();
+  let lastName = (input?.lastName || "").trim();
+
+  if (!firstName && !lastName && userMeta?.full_name) {
+    const s = splitName(userMeta.full_name);
+    firstName = s.firstName;
+    lastName = s.lastName;
+  }
+  if ((!firstName || !lastName) && email) {
+    const s = namesFromEmail(email);
+    if (!firstName) firstName = s.firstName;
+    if (!lastName) lastName = s.lastName;
+  }
+
+  return { firstName, lastName, email };
+}
+
+function buildCallbackUrl(req: NextRequest) {
+  // Prefer explicit env; otherwise reconstruct from headers on Vercel/Next
+  const explicit = process.env.NEXT_PUBLIC_BASE_URL?.trim();
+  if (explicit) return `${explicit.replace(/\/+$/, "")}/api/n8n/callback`;
+
+  const h = headers();
+  const proto = h.get("x-forwarded-proto") || "https";
+  const host = h.get("x-forwarded-host") || h.get("host");
+  if (!host) throw new Error("Missing host header to build callbackUrl");
+  return `${proto}://${host}/api/n8n/callback`;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const webhookUrl = process.env.N8N_WEBHOOK_URL;
-    if (!webhookUrl) {
-      return NextResponse.json({ error: "N8N_WEBHOOK_URL not set" }, { status: 500 });
+    const body = (await req.json()) as { client?: ClientPayload };
+    if (!body?.client) {
+      return NextResponse.json({ ok: false, error: "Missing 'client' in request body." }, { status: 400 });
     }
 
-    const body = await req.json().catch(() => ({}));
-
-    const correlationId =
-      body?.correlationId ||
-      crypto.createHash("sha256").update(`${Date.now()}-${Math.random()}`).digest("hex").slice(0, 32);
-
-    // If you have a public base URL, use it. Otherwise derive from request host.
-    const host = req.headers.get("host");
-    const baseUrlEnv = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
-    const baseUrl = baseUrlEnv || (host ? `https://${host}` : "");
-
-    const payload = {
-      // marker so you can spot the new path inside n8n
-      _source: "next-api-n8n-trigger-v2",
-      _ts: new Date().toISOString(),
-
-      correlationId,
-      ...(baseUrl
-        ? { callbackUrl: `${baseUrl}/api/n8n/callback?cid=${encodeURIComponent(correlationId)}` }
-        : {}),
-
-      // everything the client sent (DashboardClient builds this from Supabase)
-      ...body,
+    // Try to enrich from Supabase auth
+    const cookieStore = cookies();
+    const supabase = createClient(cookieStore);
+    const { data: userData } = await supabase.auth.getUser().catch(() => ({ data: null as any }));
+    const user = userData?.user;
+    const userMeta = {
+      email: user?.email ?? user?.user_metadata?.email,
+      full_name: user?.user_metadata?.full_name,
     };
 
-    // ✅ Assert required fields BEFORE calling n8n
-    const bi = payload?.client?.basicInformation || {};
-    if (!bi?.firstName && !bi?.lastName && !bi?.email) {
-      console.error("[/api/n8n/trigger] REJECT: basicInformation is empty", bi);
+    // Coerce basic info
+    const basic = coerceBasicInfo(body.client.basicInformation, userMeta);
+
+    if (!basic.email) {
       return NextResponse.json(
         {
+          ok: false,
           error:
-            "Missing profile data. The client must send client.basicInformation (firstName/lastName/email).",
-          hint:
-            "Make sure your page uses DashboardClient.generateMenus() and not a direct webhook.",
-          received: { basicInformation: bi },
+            "Missing profile data. Provide at least client.basicInformation.email or sign in. (We can derive names automatically.)",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    console.log("[/api/n8n/trigger] OUTBOUND TO N8N (short)", {
-      correlationId,
-      firstName: bi.firstName,
-      lastName: bi.lastName,
-      email: bi.email,
-      callbackUrl: payload.callbackUrl,
-    });
+    // Stamp the coerced profile back into payload so n8n always receives it
+    body.client.basicInformation = basic;
 
-    const res = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    // Correlation id + callback
+    const correlationId = crypto.randomUUID();
+    const callbackUrl = buildCallbackUrl(req);
 
-    const text = await res.text().catch(() => "");
-    if (!res.ok) {
-      console.error("[/api/n8n/trigger] n8n error", res.status, text?.slice(0, 600));
+    // Forward to n8n
+    const n8nUrl = process.env.N8N_WEBHOOK_URL;
+    if (!n8nUrl) {
       return NextResponse.json(
-        { error: "n8n rejected", status: res.status, details: text?.slice(0, 600) ?? "" },
-        { status: 502 }
+        { ok: false, error: "Server misconfiguration: N8N_WEBHOOK_URL is not set." },
+        { status: 500 },
       );
     }
 
-    return NextResponse.json({ correlationId, status: "accepted" }, { status: 202 });
-  } catch (e: any) {
-    console.error("[/api/n8n/trigger] crash", e);
-    return NextResponse.json({ error: e?.message || "bad request" }, { status: 400 });
+    const res = await fetch(n8nUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        correlationId,
+        callbackUrl,
+        client: body.client,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return NextResponse.json(
+        { ok: false, error: `n8n webhook failed (${res.status})`, details: text?.slice(0, 2000) },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({ ok: true, correlationId }, { status: 202 });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: err?.message || "Unknown error" }, { status: 500 });
   }
 }
