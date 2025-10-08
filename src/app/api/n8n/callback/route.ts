@@ -1,36 +1,33 @@
-// src/app/api/n8n/callback/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
-// 1) make sure Next doesn't cache this route
-export const dynamic = "force-dynamic"; // no static optimization
-
-// 2) simple in-memory store (OK for local/testing)
-const store: Map<string, any> =
-  (globalThis as any).__IC_STORE__ || new Map<string, any>();
-(globalThis as any).__IC_STORE__ = store;
-
-// 3) if later you use Node-only APIs (crypto, fs), uncomment this:
-// export const runtime = "nodejs";
+export const dynamic = 'force-dynamic'; // run on Node.js, not Edge
 
 export async function POST(req: NextRequest) {
-  const data = await req.json();
-  const cid = data?.correlationId;
-  if (!cid) return NextResponse.json({ error: "missing correlationId" }, { status: 400 });
+  const body = await req.json().catch(() => null);
+  if (!body || !body.correlationId) {
+    return NextResponse.json({ ok: false, error: 'Missing correlationId' }, { status: 400 });
+  }
 
-  store.set(cid, { status: "done", ...data });
+  const supabase = createAdminClient();
 
-  return NextResponse.json({ ok: true }, {
-    headers: { "Cache-Control": "no-store" }
-  });
-}
+  // You can map whatever your n8n flow returns here:
+  // e.g. body.menus, body.heroImages, body.menuCards, body.receipt
+  const update: Record<string, any> = {
+    n8n_callback_payload: body,
+    menus: body.menus ?? null,
+    updated_at: new Date().toISOString(),
+    status: body.error ? 'error' : 'completed',
+  };
 
-// Helper: GET /api/n8n/callback?cid=...
-export async function GET(req: NextRequest) {
-  const cid = req.nextUrl.searchParams.get("cid");
-  if (!cid) return NextResponse.json({ error: "missing cid" }, { status: 400 });
+  const { error } = await supabase
+    .from('orders')
+    .update(update)
+    .eq('correlation_id', body.correlationId);
 
-  const data = store.get(cid) ?? { status: "pending" };
-  return NextResponse.json(data, {
-    headers: { "Cache-Control": "no-store" }
-  });
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
 }

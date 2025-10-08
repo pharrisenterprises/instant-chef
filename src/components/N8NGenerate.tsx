@@ -1,47 +1,43 @@
 'use client';
 
 import { useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
-/** ---------- TYPES: mirror your wizard ---------- */
+/* -------------------- Types (exported so page.tsx can import) -------------------- */
 export type BasicInformation = {
   firstName: string;
   lastName: string;
   email: string;
-  accountAddress: {
-    street: string;
-    city: string;
-    state: string;
-    zipcode: string;
-  };
+  accountAddress: { street: string; city: string; state: string; zipcode: string };
 };
 
 export type HouseholdSetup = {
-  adults: number;            // 18+
-  teens: number;             // 13–17
-  children: number;          // 5–12
-  toddlersInfants: number;   // 0–4
-  portionsPerDinner: number; // e.g. 4
-  dinnersPerWeek?: number;   // optional if you add later
+  adults: number;
+  teens: number;
+  children: number;
+  toddlersInfants: number;
+  portionsPerDinner?: number;
+  dinnersPerWeek?: number;
 };
 
 export type CookingPreferences = {
   cookingSkill: 'Beginner' | 'Intermediate' | 'Advanced' | string;
   cookingTimePreference: string; // e.g. "30 min"
-  equipment: string[];           // e.g. ["Air fryer","Instant Pot",...]
+  equipment: string[];          // e.g. ["Air fryer", "Cast Iron", ...]
 };
 
 export type DietaryProfile = {
-  allergiesRestrictions: string[]; // e.g. ["Dairy","Peanuts"]
-  dislikesAvoidList: string[];     // e.g. ["Mushrooms"]
-  dietaryPrograms: string[];       // e.g. ["Keto","Diabetic"]
-  notes?: string;                   // free text disclaimer/notes if you keep it
+  allergiesRestrictions: string[]; // or free text, your UI collects a textarea
+  dislikesAvoidList: string[];
+  dietaryPrograms: string[];
+  notes?: string;
 };
 
 export type ShoppingPreferences = {
-  storesNearMe?: string[];           // list if you capture multiple
-  preferredGroceryStore?: string;    // single favorite
-  preferOrganic?: 'I dont care' | 'Yes' | 'No' | string;
-  preferNationalBrands?: 'Yes' | 'No' | 'No preference' | string;
+  storesNearMe: string[];
+  preferredGroceryStore: string;
+  preferOrganic: string;          // "Yes" | "No" | "I dont care"
+  preferNationalBrands: string;   // "Yes" | "No" | "No preference"
 };
 
 export type ClientPayload = {
@@ -50,186 +46,207 @@ export type ClientPayload = {
   cookingPreferences: CookingPreferences;
   dietaryProfile: DietaryProfile;
   shoppingPreferences: ShoppingPreferences;
-
-  /** for anything you add later without changing this file */
-  extra?: Record<string, any>;
+  extra?: {
+    weeklyMood?: string;
+    weeklyExtras?: string;
+    weeklyOnHandText?: string;
+    pantrySnapshot?: any[];
+    barSnapshot?: any[];
+    currentMenusCount?: number;
+    // if you pass more weekly fields, they’ll be kept here:
+    [k: string]: any;
+  };
 };
 
-/** ---------- RESULT TYPES (from n8n) ---------- */
-type MenuDay = { day: number; meals: { name: string; ingredients: string[]; instructions?: string }[] };
-type Menu = { title: string; days: MenuDay[] };
-type MenuCard = { name: string; imageUrl: string; prepTime?: number; calories?: number };
-type HeroImage = { type: string; imageUrl: string };
-type Receipt = { ingredients: { name: string; qty: string }[]; estimatedTotal: number; currency: string };
+type Props = {
+  /** The full client payload you already build on the dashboard page */
+  client: ClientPayload;
 
-type Results = {
-  status: 'pending' | 'done' | 'error';
-  correlationId?: string;
-  menus?: Menu[];
-  menuCards?: MenuCard[];
-  heroImages?: HeroImage[];
-  receipt?: Receipt;
-  error?: string;
+  /** Optional: override webhook/callback; otherwise we use env + window origin */
+  webhookUrl?: string;
+  callbackUrl?: string;
+
+  /** Called after successful submit (optional) */
+  onSubmitted?: (args: { orderId: string; correlationId: string }) => void;
 };
 
-/** ---------- HELPERS ---------- */
-async function startJob(client: ClientPayload) {
-  const res = await fetch('/api/n8n/trigger', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client, // send everything under client
-      generate: { menus: true, heroImages: true, menuCards: true, receipt: true }
-    })
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(()=>'');
-    throw new Error(`Failed to start job: ${txt || res.status}`);
-  }
-  const json = await res.json();
-  return json.correlationId as string;
-}
+/* -------------------- Component -------------------- */
+export default function N8NGenerate({
+  client,
+  webhookUrl,
+  callbackUrl,
+  onSubmitted,
+}: Props) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const supabase = createClient();
 
-async function getResults(correlationId: string) {
-  const res = await fetch(`/api/n8n/callback?cid=${encodeURIComponent(correlationId)}`, { cache: 'no-store' });
-  const data = await res.json();
-  return data as Results;
-}
+  // helpers
+  const hasEquip = (label: string) =>
+    (client?.cookingPreferences?.equipment || []).includes(label);
 
-/** ---------- COMPONENT ---------- */
-export default function N8NGenerate({ client }: { client: ClientPayload }) {
-  const [status, setStatus] = useState<'idle'|'working'|'done'|'error'>('idle');
-  const [data, setData] = useState<Results | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const effectiveWebhook =
+    webhookUrl ||
+    process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
+    ''; // if blank, we’ll skip the POST but still insert
 
-  const run = async () => {
+  const effectiveCallback =
+    callbackUrl ||
+    `${typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_SITE_URL || ''}/api/n8n/callback`;
+
+  async function handleClick() {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     try {
-      setErr(null);
-      setStatus('working');
+      // 1) who is the user?
+      const { data: userRes } = await supabase.auth.getUser();
+      const user = userRes?.user || null;
 
-      // 1) tell server to kick off n8n
-      const cid = await startJob(client);
-
-      // 2) poll for results
-      let last: Results | null = null;
-      // simple backoff: 2s x 90 ~ 3 minutes; adjust as you like
-      for (let i = 0; i < 90; i++) {
-        await new Promise(r => setTimeout(r, 2000));
-        const r = await getResults(cid);
-        last = r;
-        if (r.status === 'done' || r.status === 'error') break;
+      // 2) try to load a profile row (by email is safest for your current schema)
+      let profileRow: any = null;
+      if (user?.email) {
+        const { data: p } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('email', user.email)
+          .maybeSingle();
+        profileRow = p ?? null;
       }
 
-      if (!last) throw new Error('No response received');
-      setData(last);
-      setStatus(last.status === 'done' ? 'done' : 'error');
-    } catch (e: any) {
-      setErr(e?.message || 'Something went wrong');
-      setStatus('error');
+      // 3) compose explicit columns (Account Profile fields) + snapshots
+      const correlationId = crypto.randomUUID();
+
+      const orderRecord: any = {
+        user_id: user?.id ?? null,
+        email: user?.email ?? null,
+        correlation_id: correlationId,
+        callback_url: effectiveCallback,
+        n8n_webhook_url: effectiveWebhook,
+
+        // JSON blobs (keep everything)
+        profile_snapshot: profileRow,
+        weekly: {
+          mood: client?.extra?.weeklyMood ?? null,
+          extras: client?.extra?.weeklyExtras ?? null,
+          onHandText: client?.extra?.weeklyOnHandText ?? null,
+          // include anything else you put under `extra.*` on the dashboard:
+          ...client?.extra,
+        },
+        pantry: client?.extra?.pantrySnapshot ?? [],
+        bar: client?.extra?.barSnapshot ?? [],
+        menus: [], // you can update later when menus are generated
+        client_payload: client,
+
+        // ----- Explicit columns you asked to have on orders -----
+
+        // Basic
+        profile_first_name: client.basicInformation.firstName || profileRow?.first_name || null,
+        profile_last_name: client.basicInformation.lastName || profileRow?.last_name || null,
+        profile_email: client.basicInformation.email || user?.email || null,
+
+        // Address
+        address_street: client.basicInformation.accountAddress.street || null,
+        address_city: client.basicInformation.accountAddress.city || null,
+        address_state: client.basicInformation.accountAddress.state || null,
+        address_zipcode: client.basicInformation.accountAddress.zipcode || null,
+        delivery_same_as_account: true, // your UI checkbox – set true/false when you capture it
+
+        // Household / portions / dinners
+        adults: client.householdSetup.adults ?? 0,
+        teens: client.householdSetup.teens ?? 0,
+        children: client.householdSetup.children ?? 0,
+        toddlers_infants: client.householdSetup.toddlersInfants ?? 0,
+        portions_per_dinner: client.householdSetup.portionsPerDinner ?? null,
+        dinners_per_week: client.householdSetup.dinnersPerWeek ?? null,
+
+        // Cooking
+        cooking_skill: client.cookingPreferences.cookingSkill || null,
+        cooking_time_preference: client.cookingPreferences.cookingTimePreference || null,
+
+        // Equipment flags
+        equip_air_fryer: hasEquip('Air fryer') || null,
+        equip_instant_pot: hasEquip('Instant Pot') || null,
+        equip_slow_cooker: hasEquip('Slow Cooker') || null,
+        equip_sous_vide: hasEquip('Sous Vide') || null,
+        equip_cast_iron: hasEquip('Cast Iron') || null,
+        equip_smoker: hasEquip('Smoker') || null,
+        equip_stick_blender: hasEquip('Stick Blender') || null,
+        equip_cuisinart: hasEquip('Cuisinart') || null,
+        equip_kitchen_aid: hasEquip('Kitchen Aid') || null,
+        equip_vitamix_or_high_speed_blender:
+          hasEquip('Vitamix or High Speed Blender (Ninja)') || null,
+        equip_fryer: hasEquip('Fryer') || null,
+        equip_other_equipment: '', // fill from your "other equipment" text if you collect it
+
+        // Allergies / programs / macros — store as comma text for the explicit cols
+        allergies_restrictions:
+          (client.dietaryProfile?.allergiesRestrictions || []).join(', ') || null,
+        dietary_programs:
+          (client.dietaryProfile?.dietaryPrograms || []).join(', ') || null,
+        macros: client.dietaryProfile?.notes || null, // or your macro targets text area
+
+        // Shopping & stores
+        shopping_preferred_store:
+          client.shoppingPreferences?.preferredGroceryStore || null,
+        shopping_stores_near_me:
+          client.shoppingPreferences?.storesNearMe?.length
+            ? client.shoppingPreferences.storesNearMe
+            : null,
+        shopping_prefer_organic: client.shoppingPreferences?.preferOrganic || null,
+        shopping_prefer_national_brands:
+          client.shoppingPreferences?.preferNationalBrands || null,
+      };
+
+      // 4) insert order
+      const { data: created, error: insertErr } = await supabase
+        .from('orders')
+        .insert(orderRecord)
+        .select('id, correlation_id')
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      // 5) send to n8n (if webhook configured)
+      if (effectiveWebhook) {
+        const payload = {
+          client,
+          generate: {
+            menus: true,
+            heroImages: true,
+            menuCards: true,
+            receipt: true,
+          },
+          correlationId,
+          callbackUrl: effectiveCallback,
+        };
+
+        await fetch(effectiveWebhook, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        }).catch(() => {
+          /* ignore network errors to avoid blocking UI; order row already saved */
+        });
+      }
+
+      onSubmitted?.({ orderId: created.id, correlationId });
+      alert('Your order was saved and the menu generation has started.');
+    } catch (err: any) {
+      console.error('Generate Menu failed:', err);
+      alert(err?.message || 'Something went wrong saving your order.');
+    } finally {
+      setIsSubmitting(false);
     }
-  };
+  }
 
   return (
-    <div className="space-y-6">
-      <button
-        onClick={run}
-        className="px-4 py-2 rounded-lg bg-black text-white hover:opacity-90 disabled:opacity-50"
-        disabled={status === 'working'}
-      >
-        {status === 'working' ? 'Cooking your menu…' : 'Generate Menu'}
-      </button>
-
-      {err && <div className="text-red-600 text-sm">{err}</div>}
-
-      {/* Results */}
-      {status === 'done' && data?.status === 'done' && (
-        <div className="space-y-8">
-          {/* Hero images */}
-          {data.heroImages?.length ? (
-            <section>
-              <h3 className="text-xl font-semibold mb-2">Hero Images</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {data.heroImages.map((img, i) => (
-                  <img key={i} src={img.imageUrl} alt={img.type || `hero-${i}`} className="w-full h-48 object-cover rounded-xl border" />
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {/* Menus */}
-          {data.menus?.length ? (
-            <section>
-              <h3 className="text-xl font-semibold mb-2">Weekly Menus</h3>
-              <div className="space-y-4">
-                {data.menus.map((menu, i) => (
-                  <div key={i} className="rounded-xl border p-4">
-                    <h4 className="font-semibold mb-2">{menu.title}</h4>
-                    <div className="space-y-2">
-                      {menu.days.map(day => (
-                        <div key={day.day} className="pl-2">
-                          <div className="font-medium">Day {day.day}</div>
-                          <ul className="list-disc pl-6">
-                            {day.meals.map((m, j) => (
-                              <li key={j}>
-                                <span className="font-medium">{m.name}</span>
-                                {m.ingredients?.length ? (
-                                  <span className="block text-sm text-gray-600">
-                                    Ingredients: {m.ingredients.join(', ')}
-                                  </span>
-                                ) : null}
-                                {m.instructions ? (
-                                  <span className="block text-sm text-gray-600">How: {m.instructions}</span>
-                                ) : null}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {/* Menu cards */}
-          {data.menuCards?.length ? (
-            <section>
-              <h3 className="text-xl font-semibold mb-2">Menu Cards</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {data.menuCards.map((c, i) => (
-                  <div key={i} className="rounded-xl border overflow-hidden">
-                    <img src={c.imageUrl} alt={c.name} className="w-full h-40 object-cover" />
-                    <div className="p-3">
-                      <div className="font-medium">{c.name}</div>
-                      <div className="text-sm text-gray-600">
-                        {c.prepTime ? `Prep: ${c.prepTime} min` : ''}{c.prepTime && c.calories ? ' · ' : ''}{c.calories ? `${c.calories} cal` : ''}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {/* Receipt */}
-          {data.receipt ? (
-            <section>
-              <h3 className="text-xl font-semibold mb-2">Shopping List</h3>
-              <div className="rounded-xl border p-4 space-y-2">
-                <ul className="list-disc pl-6">
-                  {data.receipt.ingredients.map((it, i) => (
-                    <li key={i}>{it.name} — {it.qty}</li>
-                  ))}
-                </ul>
-                <div className="font-medium">
-                  Estimated Total: {data.receipt.estimatedTotal} {data.receipt.currency}
-                </div>
-              </div>
-            </section>
-          ) : null}
-        </div>
-      )}
-    </div>
+    <button
+      className="px-5 py-2 rounded bg-gray-900 text-white disabled:opacity-60"
+      onClick={handleClick}
+      disabled={isSubmitting}
+      aria-busy={isSubmitting}
+    >
+      {isSubmitting ? 'Cooking your menu…' : 'Generate Menu'}
+    </button>
   );
 }
