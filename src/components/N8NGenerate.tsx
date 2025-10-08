@@ -62,6 +62,13 @@ export default function N8NGenerate({
   onSubmitted,
 }: Props) {
   const [loading, setLoading] = useState(false);
+  if (!finalEmail) {
+    const acct = document.querySelector('input[type="email"]') as HTMLInputElement | null;
+    const guess = acct?.value?.trim();
+    if (guess?.includes("@")) {
+      try { localStorage.setItem("ic.email", guess); } catch {}
+    }
+  }
 
   async function submitToN8N() {
     try {

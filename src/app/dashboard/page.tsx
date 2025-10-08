@@ -237,6 +237,7 @@ export default function DashboardPage() {
         router.replace('/auth?next=/dashboard');
       } else {
         setUserEmail(user.email ?? null);
+        try { localStorage.setItem("ic.email", user.email ?? ""); } catch {}
       }
     });
     return () => { mounted = false; };
@@ -575,7 +576,23 @@ export default function DashboardPage() {
                   Generate Menu (Sample)
                 </button>
                 <div>
-                  <N8NGenerate client={client} />
+                  <N8NGenerate
+                    profile={{ basicInformation, householdSetup, cookingPreferences, dietaryProfile, shoppingPreferences }}
+                    weekly={{
+                      portionsPerDinner: householdSetup.portionsPerDinner,
+                      dinnersPerWeek: householdSetup.dinnersPerWeek,
+                      preferredGroceryStore: shoppingPreferences.preferredGroceryStore,
+                      preferOrganic: shoppingPreferences.preferOrganic,
+                      preferNationalBrands: shoppingPreferences.preferNationalBrands,
+                      weeklyMood: weekly.mood,
+                      weeklyExtras: weekly.extras,
+                      weeklyOnHandText: weekly.onHandText,
+                      pantrySnapshot: pantry,
+                      barSnapshot: bar,
+                      currentMenusCount: menus?.length ?? 0,
+                    }}
+                    userEmailFromHeader={userEmail ?? undefined}
+                  />
                 </div>
               </div>
             </div>
