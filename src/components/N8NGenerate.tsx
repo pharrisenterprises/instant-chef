@@ -21,9 +21,9 @@ function split(v?: string) {
   return (v || "").split(",").map(s => s.trim()).filter(Boolean);
 }
 function pickProfile(): Partial<ClientPayload> {
-  // Try multiple keys so we work across old/new screens
+  // Read from both the new and historical keys so it works across your old pages
   const acct = readLS<any>("accountProfile", null) ?? readLS<any>("IC_ACCOUNT", null) ?? null;
-  const basicOld = readLS<any>("IC_BASIC", null);     // older split storage
+  const basicOld = readLS<any>("IC_BASIC", null);
   const houseOld = readLS<any>("IC_HOUSE", null);
   const cookOld  = readLS<any>("IC_COOK", null);
   const dietOld  = readLS<any>("IC_DIET", null);
@@ -31,12 +31,12 @@ function pickProfile(): Partial<ClientPayload> {
 
   const basicInformation: Partial<Basic> = acct ? {
     firstName: acct.firstName || "",
-    lastName: acct.lastName || "",
-    email: acct.email || "",
+    lastName:  acct.lastName  || "",
+    email:     acct.email     || "",
     accountAddress: {
-      street: acct.address?.street || "",
-      city: acct.address?.city || "",
-      state: acct.address?.state || "",
+      street:  acct.address?.street  || "",
+      city:    acct.address?.city    || "",
+      state:   acct.address?.state   || "",
       zipcode: acct.address?.zipcode || "",
     }
   } : basicOld ? {
@@ -56,32 +56,33 @@ function pickProfile(): Partial<ClientPayload> {
     toddlersInfants: +acct.toddlers || 0,
     portionsPerDinner: +acct.portionsPerMeal || 0,
     dinnersPerWeek: +acct.dinnersPerWeek || 0,
-  } : houseOld || {};
+  } : (houseOld || {});
 
   const cookingPreferences = acct ? {
     cookingSkill: acct.cookingSkill || "Beginner",
     cookingTimePreference: acct.cookingTime || "30 min",
     equipment: Array.isArray(acct.equipment) ? acct.equipment : split(acct.equipment),
-  } : cookOld || {};
+  } : (cookOld || {});
 
   const dietaryProfile = acct ? {
     allergiesRestrictions: split(acct.allergies),
     dislikesAvoidList: split(acct.dislikes),
     dietaryPrograms: split(acct.dietaryPrograms),
     notes: acct.macros || "",
-  } : dietOld || {};
+  } : (dietOld || {});
 
   const shoppingPreferences = acct ? {
     storesNearMe: split(acct.storesNearby),
     preferredGroceryStore: acct.preferredStore || "",
     preferOrganic: acct.organicPreference || "I dont care",
     preferNationalBrands: acct.brandPreference || "No preference",
-  } : shopOld || {};
+  } : (shopOld || {});
 
   return { basicInformation, householdSetup, cookingPreferences, dietaryProfile, shoppingPreferences };
 }
 function mergeSection<T extends object>(a?: T, b?: T): T {
-  return { ...(b || {}), ...(a || {}) } as T; // caller wins; profile fills gaps
+  // Caller wins; profile fills gaps.
+  return { ...(b || {}), ...(a || {}) } as T;
 }
 
 export default function N8NGenerate({ client }: { client: ClientPayload }) {
@@ -93,7 +94,7 @@ export default function N8NGenerate({ client }: { client: ClientPayload }) {
       setErr(null);
       setBusy(true);
 
-      // enrich from any saved profile; do not block if empty
+      // Enrich with any saved Account Profile we can find
       const p = pickProfile();
       const merged: ClientPayload = {
         ...client,
@@ -104,6 +105,7 @@ export default function N8NGenerate({ client }: { client: ClientPayload }) {
         shoppingPreferences: mergeSection(client?.shoppingPreferences, p.shoppingPreferences),
       };
 
+      // Do NOT block on the client; the server will back-fill from Supabase if needed
       const res = await fetch("/api/n8n/trigger", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -117,9 +119,9 @@ export default function N8NGenerate({ client }: { client: ClientPayload }) {
         throw new Error(j?.error || `Trigger failed (${res.status})`);
       }
 
-      // if you poll here, keep your existing polling code…
+      // …(your existing polling for /api/n8n/callback can stay as-is here)…
     } catch (e: any) {
-      setErr(e?.message || "Failed to start generation");
+      setErr(e?.message || "Failed to start");
     } finally {
       setBusy(false);
     }

@@ -2,7 +2,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { headers, cookies } from "next/headers";
 import crypto from "crypto";
-import { createClient } from "@/lib/supabase/server";
+
+// If you already have a wrapper, you can keep it. This one works with Next 14/15.
+import { createServerClient } from "@supabase/ssr";
+import type { CookieOptions } from "@supabase/ssr";
+
+function getSupabase() {
+  const cookieStore = cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (key: string) => cookieStore.get(key)?.value,
+        set: (key: string, value: string, options: CookieOptions) => {
+          cookieStore.set({ name: key, value, ...options });
+        },
+        remove: (key: string, options: CookieOptions) => {
+          cookieStore.set({ name: key, value: "", ...options });
+        },
+      },
+    }
+  );
+}
 
 type Basic = {
   firstName: string;
@@ -10,6 +32,7 @@ type Basic = {
   email: string;
   accountAddress?: { street?: string; city?: string; state?: string; zipcode?: string };
 };
+
 type ClientPayload = {
   basicInformation?: Partial<Basic>;
   householdSetup?: any;
@@ -32,36 +55,37 @@ function namesFromEmail(email?: string) {
   const p = cleaned.split(/\s+/);
   return p.length === 1 ? { firstName: p[0], lastName: "" } : { firstName: p[0], lastName: p.slice(1).join(" ") };
 }
+function merge<A extends object, B extends object>(a?: A, b?: B) {
+  return { ...(b || {}), ...(a || {}) };
+}
 function buildCallbackUrl() {
   const explicit = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/+$/, "");
   if (explicit) return `${explicit}/api/n8n/callback`;
   const h = headers();
   const proto = h.get("x-forwarded-proto") || "https";
   const host = h.get("x-forwarded-host") || h.get("host");
-  if (!host) throw new Error("Cannot build callbackUrl: missing host");
   return `${proto}://${host}/api/n8n/callback`;
 }
-function merge<A extends object, B extends object>(a?: A, b?: B) {
-  return { ...(b || {}), ...(a || {}) };
-}
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as { client?: ClientPayload; generate?: any };
-    const clientIn = body?.client || {};
+    const body = (await req.json().catch(() => ({}))) as { client?: ClientPayload; generate?: any };
 
-    // Try to enrich from Supabase auth
-    const supa = createClient(cookies());
-    const { data: userData } = await supa.auth.getUser().catch(() => ({ data: null as any }));
+    const supabase = getSupabase();
+    const { data: userData } = await supabase.auth.getUser().catch(() => ({ data: null as any }));
     const user = userData?.user;
 
+    // 1) Source-of-truth email
     const email =
-      (clientIn.basicInformation?.email || "").trim() ||
+      (body?.client?.basicInformation?.email || "").trim() ||
       (user?.email || user?.user_metadata?.email || "").trim();
 
-    // derive names
-    let firstName = (clientIn.basicInformation?.firstName || "").trim();
-    let lastName = (clientIn.basicInformation?.lastName || "").trim();
+    // 2) Names best-effort
+    let firstName = (body?.client?.basicInformation?.firstName || "").trim();
+    let lastName = (body?.client?.basicInformation?.lastName || "").trim();
 
     if ((!firstName && !lastName) && user?.user_metadata?.full_name) {
       const s = splitName(user.user_metadata.full_name);
@@ -74,18 +98,13 @@ export async function POST(req: NextRequest) {
       if (!lastName) lastName = s.lastName;
     }
 
-    // Final basicInformation (don’t fail if names are blank; only require email)
-    const basicInformation: Basic = merge(clientIn.basicInformation, { email, firstName, lastName });
+    // 3) Final basicInformation (never throw; enrich instead)
+    const basicInformation: Basic = merge(body?.client?.basicInformation, { email, firstName, lastName });
 
-    if (!basicInformation.email) {
-      // As a last resort, accept and let n8n decide; or return a friendly 200 with ok:false
-      return NextResponse.json(
-        { ok: false, error: "No email found. Please save your profile or sign in." },
-        { status: 200 } // don’t throw 400 to keep UI flow calm
-      );
-    }
-
-    const client: ClientPayload = { ...clientIn, basicInformation };
+    const client: ClientPayload = {
+      ...body?.client,
+      basicInformation,
+    };
 
     const n8nUrl = process.env.N8N_WEBHOOK_URL;
     if (!n8nUrl) {
