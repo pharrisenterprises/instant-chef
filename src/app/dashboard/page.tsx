@@ -1,8 +1,7 @@
 'use client';
 
-import nextDynamic from 'next/dynamic'; // ✅ rename to avoid collision
-
-export const dynamic = 'force-dynamic'; // ✅ this can stay
+import nextDynamic from 'next/dynamic';
+export const dynamic = 'force-dynamic';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -11,7 +10,6 @@ import { createClient } from '@/lib/supabase/client';
 const N8NGenerate = nextDynamic(() => import('../../components/N8NGenerate'), {
   ssr: false,
 });
-
 
 /* -------------------- LocalStorage keys -------------------- */
 const LS = {
@@ -30,7 +28,7 @@ const LS = {
   IC_SHOP: 'ic_shop',
 };
 
-/* -------------------- Types -------------------- */
+/* -------------------- Local types (component only) -------------------- */
 type Measure = 'oz' | 'lb' | 'ml' | 'g' | 'kg' | 'count';
 type Portionable = { portions: number };
 
@@ -104,7 +102,15 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const toNumber = (v: any, fallback = 0) => (Number.isFinite(+v) ? +v : fallback);
 
 const defaultProfile: Profile = { portionDefault: 4, store: 'Kroger' };
-const defaultWeekly: Weekly = { dinners: 3, budgetType: 'none', budgetValue: undefined, onHandText: '', onHandImageDataUrl: undefined, mood: '', extras: '' };
+const defaultWeekly: Weekly = {
+  dinners: 3,
+  budgetType: 'none',
+  budgetValue: undefined,
+  onHandText: '',
+  onHandImageDataUrl: undefined,
+  mood: '',
+  extras: '',
+};
 
 const SAMPLE_MENUS: Omit<MenuItem, 'portions' | 'approved'>[] = [
   {
@@ -177,7 +183,7 @@ function save<T>(key: string, val: T) {
 
 function scaleIngredients(base: Ingredient[], portions: number) {
   const scale = portions / 2;
-  return base.map(i => ({ ...i, qty: +(i.qty * scale).toFixed(2) }));
+  return base.map((i) => ({ ...i, qty: +(i.qty * scale).toFixed(2) }));
 }
 function linePrice(i: Ingredient) {
   if (!i.estPrice) return 0;
@@ -186,7 +192,7 @@ function linePrice(i: Ingredient) {
 function autoFadePerishables(items: BarItem[]): BarItem[] {
   const weekMs = 7 * 24 * 3600 * 1000;
   const t = now();
-  return items.map(it => {
+  return items.map((it) => {
     if ((it.type === 'produce' || it.type === 'herb' || it.perishable) && t - it.updatedAt > weekMs) {
       return { ...it, active: false };
     }
@@ -194,27 +200,42 @@ function autoFadePerishables(items: BarItem[]): BarItem[] {
   });
 }
 function generateBeverageRecipe(bar: BarItem[], type: 'cocktail' | 'mocktail'): BeverageRecipe {
-  const activeItems = bar.filter(i => i.active);
+  const activeItems = bar.filter((i) => i.active);
   let selected: { name: string; qty: number; measure: string }[] = [];
   let name = '';
   let steps: string[] = [];
 
   if (type === 'mocktail') {
-    const produce = activeItems.filter(i => i.type === 'produce');
-    const herbs = activeItems.filter(i => i.type === 'herb');
-    const mixers = activeItems.filter(i => i.type === 'mixer');
-    if (produce[0]) { name = `Sparkling ${produce[0].name} `; selected.push({ name: produce[0].name, qty: 4, measure: 'oz' }); }
-    if (herbs[0]) { name += herbs[0].name + ' Refresher'; selected.push({ name: herbs[0].name, qty: 3, measure: 'leaves' }); }
+    const produce = activeItems.filter((i) => i.type === 'produce');
+    const herbs = activeItems.filter((i) => i.type === 'herb');
+    const mixers = activeItems.filter((i) => i.type === 'mixer');
+    if (produce[0]) {
+      name = `Sparkling ${produce[0].name} `;
+      selected.push({ name: produce[0].name, qty: 4, measure: 'oz' });
+    }
+    if (herbs[0]) {
+      name += herbs[0].name + ' Refresher';
+      selected.push({ name: herbs[0].name, qty: 3, measure: 'leaves' });
+    }
     if (mixers[0]) selected.push({ name: mixers[0].name, qty: 6, measure: 'oz' });
     if (!name) name = 'Fresh Garden Mocktail';
     steps = ['Muddle fresh ingredients', 'Add ice and shake 15s', 'Strain into glass with ice', 'Top with mixer & garnish'];
   } else {
-    const spirits = activeItems.filter(i => i.type === 'spirit');
-    const produce = activeItems.filter(i => i.type === 'produce');
-    const mixers = activeItems.filter(i => i.type === 'mixer');
-    if (spirits[0]) { name = spirits[0].name + ' '; selected.push({ name: spirits[0].name, qty: 2, measure: 'oz' }); }
-    if (produce[0]) { name += produce[0].name + ' '; selected.push({ name: produce[0].name, qty: 3, measure: 'pieces' }); }
-    if (mixers[0]) { name += mixers[0].name.includes('water') ? 'Spritz' : 'Cocktail'; selected.push({ name: mixers[0].name, qty: 4, measure: 'oz' }); }
+    const spirits = activeItems.filter((i) => i.type === 'spirit');
+    const produce = activeItems.filter((i) => i.type === 'produce');
+    const mixers = activeItems.filter((i) => i.type === 'mixer');
+    if (spirits[0]) {
+      name = spirits[0].name + ' ';
+      selected.push({ name: spirits[0].name, qty: 2, measure: 'oz' });
+    }
+    if (produce[0]) {
+      name += produce[0].name + ' ';
+      selected.push({ name: produce[0].name, qty: 3, measure: 'pieces' });
+    }
+    if (mixers[0]) {
+      name += mixers[0].name.includes('water') ? 'Spritz' : 'Cocktail';
+      selected.push({ name: mixers[0].name, qty: 4, measure: 'oz' });
+    }
     if (!name) name = 'Classic Cocktail';
     steps = ['Add spirit + fresh items to shaker with ice', 'Shake 15–20s', 'Strain over fresh ice', 'Top with mixer, garnish'];
   }
@@ -224,7 +245,6 @@ function generateBeverageRecipe(bar: BarItem[], type: 'cocktail' | 'mocktail'): 
 
 /* -------------------- Component -------------------- */
 export default function DashboardPage() {
-  // Auth guard + email
   const supabase = createClient();
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -237,15 +257,21 @@ export default function DashboardPage() {
         router.replace('/auth?next=/dashboard');
       } else {
         setUserEmail(user.email ?? null);
-        try { localStorage.setItem("ic.email", user.email ?? ""); } catch {}
+        try {
+          localStorage.setItem('ic.email', user.email ?? '');
+        } catch {}
       }
     });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [router, supabase]);
 
   async function signOut() {
-    try { await supabase.auth.signOut(); } catch {}
-    Object.values(LS).forEach(k => localStorage.removeItem(k));
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    Object.values(LS).forEach((k) => localStorage.removeItem(k));
     router.replace('/');
   }
 
@@ -260,7 +286,11 @@ export default function DashboardPage() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [beverageRecipe, setBeverageRecipe] = useState<BeverageRecipe | null>(null);
   const [editingPantryItem, setEditingPantryItem] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<{ name: string; qty: string; measure: Measure | null }>({ name: '', qty: '', measure: 'oz' });
+  const [editForm, setEditForm] = useState<{ name: string; qty: string; measure: Measure | null }>({
+    name: '',
+    qty: '',
+    measure: 'oz',
+  });
   const [onHandPreview, setOnHandPreview] = useState<string | undefined>(undefined);
   const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
   const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
@@ -285,13 +315,13 @@ export default function DashboardPage() {
 
   // Pull values from signup blobs (if present)
   useEffect(() => {
-    const h = load<HouseholdSetup | null>(LS.IC_HOUSE, null);
+    const h = load<any | null>(LS.IC_HOUSE, null);
     if (h) {
-      setProfile(p => ({ ...p, portionDefault: h.portionsPerDinner || p.portionDefault }));
-      if (h.dinnersPerWeek) setWeekly(w => ({ ...w, dinners: h.dinnersPerWeek! }));
+      setProfile((p) => ({ ...p, portionDefault: h.portionsPerDinner || p.portionDefault }));
+      if (h.dinnersPerWeek) setWeekly((w) => ({ ...w, dinners: h.dinnersPerWeek! }));
     }
-    const s = load<ShoppingPreferences | null>(LS.IC_SHOP, null);
-    if (s?.preferredGroceryStore) setProfile(p => ({ ...p, store: s.preferredGroceryStore || p.store }));
+    const s = load<any | null>(LS.IC_SHOP, null);
+    if (s?.preferredGroceryStore) setProfile((p) => ({ ...p, store: s.preferredGroceryStore || p.store }));
   }, []);
 
   // Persist
@@ -313,12 +343,12 @@ export default function DashboardPage() {
   const grandTotal = useMemo(() => +(totalMeal + totalExtra).toFixed(2), [totalMeal, totalExtra]);
 
   function resetAll() {
-    Object.values(LS).forEach(k => localStorage.removeItem(k));
+    Object.values(LS).forEach((k) => localStorage.removeItem(k));
     window.location.href = '/';
   }
   function generateMenus() {
     const count = Math.min(weekly.dinners || 3, SAMPLE_MENUS.length);
-    const generated: MenuItem[] = SAMPLE_MENUS.slice(0, count).map(base => ({
+    const generated: MenuItem[] = SAMPLE_MENUS.slice(0, count).map((base) => ({
       ...base,
       portions: profile.portionDefault,
       approved: false,
@@ -327,30 +357,28 @@ export default function DashboardPage() {
   }
   function approveMenu(menu: MenuItem) {
     const scaled = scaleIngredients(menu.ingredients, menu.portions);
-    const newLines: CartLine[] = scaled.map(ing => ({
+    const newLines: CartLine[] = scaled.map((ing) => ({
       id: uid(),
       name: ing.name,
       qty: ing.qty,
       measure: ing.measure,
-      estPrice: +(linePrice(ing)).toFixed(2),
+      estPrice: +linePrice(ing).toFixed(2),
       section: 'meal',
     }));
-    setCartMeal(prev => [...prev, ...newLines]);
-    setMenus(prev => prev.map(m => (m.id === menu.id ? { ...m, approved: true } : m)));
+    setCartMeal((prev) => [...prev, ...newLines]);
+    setMenus((prev) => prev.map((m) => (m.id === menu.id ? { ...m, approved: true } : m)));
   }
   function submitFeedback(menu: MenuItem, feedback: string) {
-    setMenus(prev =>
-      prev.map(m =>
-        m.id === menu.id ? { ...m, feedback, title: `${m.title} — Chef's Twist`, description: `Updated per your note: ${feedback}` } : m
-      )
+    setMenus((prev) =>
+      prev.map((m) => (m.id === menu.id ? { ...m, feedback, title: `${m.title} — Chef's Twist`, description: `Updated per your note: ${feedback}` } : m)),
     );
   }
   function adjustMenuPortions(menuId: string, delta: number) {
-    setMenus(prev => prev.map(m => (m.id === menuId ? { ...m, portions: Math.max(1, m.portions + delta) } : m)));
+    setMenus((prev) => prev.map((m) => (m.id === menuId ? { ...m, portions: Math.max(1, m.portions + delta) } : m)));
   }
   function addExtraItem(name: string, qty: number, measure: Measure, estPrice: number) {
     const line: CartLine = { id: uid(), name, qty, measure, estPrice, section: 'extra' };
-    setCartExtra(prev => [...prev, line]);
+    setCartExtra((prev) => [...prev, line]);
   }
   function openInstacart() {
     window.open('https://www.instacart.com', '_blank');
@@ -359,7 +387,7 @@ export default function DashboardPage() {
     if (weekly.budgetType === 'none' || !weekly.budgetValue) return true;
     if (weekly.budgetType === 'perWeek') return grandTotal <= weekly.budgetValue + 0.01;
     if (weekly.budgetType === 'perMeal') {
-      const approvedCount = menus.filter(m => m.approved).length || 1;
+      const approvedCount = menus.filter((m) => m.approved).length || 1;
       return totalMeal <= weekly.budgetValue * approvedCount + 0.01;
     }
     return true;
@@ -370,9 +398,9 @@ export default function DashboardPage() {
     reader.readAsDataURL(file);
   }
   function submitOnHandImage() {
-    setWeekly(prev => ({ ...prev, onHandImageDataUrl: onHandPreview }));
+    setWeekly((prev) => ({ ...prev, onHandImageDataUrl: onHandPreview }));
     const add = (prevOnHand: string) => (prevOnHand ? prevOnHand + ', ' : '') + '2 lb chicken thighs, 1 lemon, 8 oz spinach';
-    setWeekly(prev => ({ ...prev, onHandText: add(prev.onHandText) }));
+    setWeekly((prev) => ({ ...prev, onHandText: add(prev.onHandText) }));
     setOnHandPreview(undefined);
   }
   function addPantryManual(name: string, qty: number | null, measure: Measure | null, type?: string) {
@@ -386,7 +414,7 @@ export default function DashboardPage() {
       updatedAt: now(),
       type,
     };
-    setPantry(prev => [item, ...prev]);
+    setPantry((prev) => [item, ...prev]);
   }
   function submitPantryImage() {
     addPantryManual('Canned tomatoes', 14, 'oz', 'canned');
@@ -403,50 +431,25 @@ export default function DashboardPage() {
   function saveEditPantryItem(id: string) {
     const qty = editForm.qty.trim() === '' ? null : Math.max(0, toNumber(editForm.qty, 0));
     const measure = editForm.qty.trim() === '' ? null : editForm.measure;
-    setPantry(prev => prev.map(p => (p.id === id ? { ...p, name: editForm.name, qty, measure, updatedAt: now() } : p)));
+    setPantry((prev) => prev.map((p) => (p.id === id ? { ...p, name: editForm.name, qty, measure, updatedAt: now() } : p)));
     setEditingPantryItem(null);
   }
   function addBarManual(name: string, qty: number, measure: Measure, type: BarItem['type']) {
     const perishable = type === 'produce' || type === 'herb';
     const item: BarItem = { id: uid(), name, qty, measure, type, active: true, perishable, updatedAt: now() };
-    setBar(prev => [item, ...prev]);
+    setBar((prev) => [item, ...prev]);
   }
   function submitBarImage() {
     addBarManual('Lime', 6, 'count', 'produce');
     addBarManual('Simple syrup', 8, 'oz', 'mixer');
     setBarPreview(undefined);
   }
-  function createMocktail() { setBeverageRecipe(generateBeverageRecipe(bar, 'mocktail')); }
-  function createCocktail() { setBeverageRecipe(generateBeverageRecipe(bar, 'cocktail')); }
-
-  // Build payload for n8n
-  const ic_basic = load<BasicInformation | null>(LS.IC_BASIC, null);
-  const ic_house = load<HouseholdSetup | null>(LS.IC_HOUSE, null);
-  const ic_cook  = load<CookingPreferences | null>(LS.IC_COOK, null);
-  const ic_diet  = load<DietaryProfile | null>(LS.IC_DIET, null);
-  const ic_shop  = load<ShoppingPreferences | null>(LS.IC_SHOP, null);
-
-  const basicInformation: BasicInformation = ic_basic ?? { firstName: '', lastName: '', email: '', accountAddress: { street: '', city: '', state: '', zipcode: '' } };
-  const householdSetup: HouseholdSetup = ic_house ?? { adults: 0, teens: 0, children: 0, toddlersInfants: 0, portionsPerDinner: profile.portionDefault ?? 1, dinnersPerWeek: weekly.dinners ?? undefined };
-  const cookingPreferences: CookingPreferences = ic_cook ?? { cookingSkill: 'Beginner', cookingTimePreference: '30 min', equipment: [] };
-  const dietaryProfile: DietaryProfile = ic_diet ?? { allergiesRestrictions: [], dislikesAvoidList: [], dietaryPrograms: [], notes: undefined };
-  const shoppingPreferences: ShoppingPreferences = ic_shop ?? { storesNearMe: [], preferredGroceryStore: profile.store ?? '', preferOrganic: 'I dont care', preferNationalBrands: 'No preference' };
-
-  const client: ClientPayload = {
-    basicInformation,
-    householdSetup,
-    cookingPreferences,
-    dietaryProfile,
-    shoppingPreferences,
-    extra: {
-      weeklyMood: weekly.mood,
-      weeklyExtras: weekly.extras,
-      weeklyOnHandText: weekly.onHandText,
-      pantrySnapshot: pantry,
-      barSnapshot: bar,
-      currentMenusCount: menus?.length ?? 0,
-    },
-  };
+  function createMocktail() {
+    setBeverageRecipe(generateBeverageRecipe(bar, 'mocktail'));
+  }
+  function createCocktail() {
+    setBeverageRecipe(generateBeverageRecipe(bar, 'cocktail'));
+  }
 
   const bgStyle = { backgroundImage: 'url(/hero.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' } as const;
 
@@ -456,17 +459,28 @@ export default function DashboardPage() {
         <header className="h-16 border-b bg-white/90 sticky top-0 z-50">
           <div className="max-w-7xl mx-auto h-full px-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <img src="/logo.png" alt="Instantly Chef" width="36" height="36" onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} />
-              <a href="/" className="font-bold text-xl">Instantly Chef</a>
+              <img
+                src="/logo.png"
+                alt="Instantly Chef"
+                width="36"
+                height="36"
+                onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+              />
+              <a href="/" className="font-bold text-xl">
+                Instantly Chef
+              </a>
             </div>
 
             <div className="flex items-center gap-2">
               {plan === 'trial' && (
-                <a href="/checkout" className="hidden md:inline-block text-sm px-3 py-1 rounded bg-yellow-100 text-yellow-800 border border-yellow-300">
+                <a
+                  href="/checkout"
+                  className="hidden md:inline-block text-sm px-3 py-1 rounded bg-yellow-100 text-yellow-800 border border-yellow-300"
+                >
                   You are on a free trial. Upgrade anytime →
                 </a>
               )}
-              <button onClick={() => setAccountOpen(v => !v)} className="px-3 py-2 rounded border bg-white hover:bg-gray-50">
+              <button onClick={() => setAccountOpen((v) => !v)} className="px-3 py-2 rounded border bg-white hover:bg-gray-50">
                 {userEmail ?? 'Account'} ▾
               </button>
               <button onClick={resetAll} className="px-3 py-2 rounded border bg-white hover:bg-gray-50" title="Dev Reset (clears localStorage)">
@@ -477,8 +491,12 @@ export default function DashboardPage() {
                   <a href="/account?edit=1" className="block px-4 py-2 hover:bg-gray-50">
                     Account Profile
                   </a>
-                  <a href="/checkout" className="block px-4 py-2 hover:bg-gray-50">Subscriptions & Billing</a>
-                  <button onClick={signOut} className="w-full text-left px-4 py-2 hover:bg-gray-50">Sign out</button>
+                  <a href="/checkout" className="block px-4 py-2 hover:bg-gray-50">
+                    Subscriptions & Billing
+                  </a>
+                  <button onClick={signOut} className="w-full text-left px-4 py-2 hover:bg-gray-50">
+                    Sign out
+                  </button>
                 </div>
               )}
             </div>
@@ -487,6 +505,7 @@ export default function DashboardPage() {
 
         <main className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
           <section className="lg:col-span-3 space-y-6">
+            {/* Weekly planner */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h2 className="text-xl font-bold mb-4">Weekly Menu Planning</h2>
 
@@ -494,27 +513,53 @@ export default function DashboardPage() {
                 <div>
                   <label className="block text-sm font-medium">Portions per Dinner</label>
                   <div className="flex items-center gap-2 mt-1">
-                    <button className="px-2 py-1 border rounded" onClick={() => setProfile(p => ({ ...p, portionDefault: Math.max(1, p.portionDefault - 1) }))}>-</button>
-                    <input type="number" className="w-20 border rounded px-2 py-1 text-center" value={profile.portionDefault} onChange={(e) => setProfile(p => ({ ...p, portionDefault: Math.max(1, toNumber(e.target.value, p.portionDefault)) }))} />
-                    <button className="px-2 py-1 border rounded" onClick={() => setProfile(p => ({ ...p, portionDefault: p.portionDefault + 1 }))}>+</button>
+                    <button
+                      className="px-2 py-1 border rounded"
+                      onClick={() => setProfile((p) => ({ ...p, portionDefault: Math.max(1, p.portionDefault - 1) }))}
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      className="w-20 border rounded px-2 py-1 text-center"
+                      value={profile.portionDefault}
+                      onChange={(e) => setProfile((p) => ({ ...p, portionDefault: Math.max(1, toNumber(e.target.value, p.portionDefault)) }))}
+                    />
+                    <button className="px-2 py-1 border rounded" onClick={() => setProfile((p) => ({ ...p, portionDefault: p.portionDefault + 1 }))}>
+                      +
+                    </button>
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium">Grocery Store</label>
-                  <input className="w-full border rounded px-3 py-2 mt-1" value={profile.store} onChange={(e) => setProfile(p => ({ ...p, store: e.target.value }))} placeholder="e.g., Kroger" />
+                  <input
+                    className="w-full border rounded px-3 py-2 mt-1"
+                    value={profile.store}
+                    onChange={(e) => setProfile((p) => ({ ...p, store: e.target.value }))}
+                    placeholder="e.g., Kroger"
+                  />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium">Dinners Needed This Week</label>
-                  <input type="number" className="w-full border rounded px-3 py-2 mt-1" value={weekly.dinners} onChange={(e) => setWeekly(w => ({ ...w, dinners: Math.max(1, toNumber(e.target.value, w.dinners)) }))} />
+                  <input
+                    type="number"
+                    className="w-full border rounded px-3 py-2 mt-1"
+                    value={weekly.dinners}
+                    onChange={(e) => setWeekly((w) => ({ ...w, dinners: Math.max(1, toNumber(e.target.value, w.dinners)) }))}
+                  />
                 </div>
               </div>
 
               <div className="grid md:grid-cols-3 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium">Budget Type</label>
-                  <select className="w-full border rounded px-3 py-2 mt-1" value={weekly.budgetType} onChange={(e) => setWeekly(w => ({ ...w, budgetType: e.target.value as Weekly['budgetType'] }))}>
+                  <select
+                    className="w-full border rounded px-3 py-2 mt-1"
+                    value={weekly.budgetType}
+                    onChange={(e) => setWeekly((w) => ({ ...w, budgetType: e.target.value as Weekly['budgetType'] }))}
+                  >
                     <option value="none">No budget</option>
                     <option value="perWeek">Per week ($)</option>
                     <option value="perMeal">Per meal ($)</option>
@@ -522,7 +567,13 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium">Budget Value</label>
-                  <input type="number" className="w-full border rounded px-3 py-2 mt-1" value={weekly.budgetValue ?? ''} onChange={(e) => setWeekly(w => ({ ...w, budgetValue: e.target.value === '' ? undefined : Math.max(0, toNumber(e.target.value, w.budgetValue ?? 0)) }))} placeholder="e.g., 150" />
+                  <input
+                    type="number"
+                    className="w-full border rounded px-3 py-2 mt-1"
+                    value={weekly.budgetValue ?? ''}
+                    onChange={(e) => setWeekly((w) => ({ ...w, budgetValue: e.target.value === '' ? undefined : Math.max(0, toNumber(e.target.value, w.budgetValue ?? 0)) }))}
+                    placeholder="e.g., 150"
+                  />
                 </div>
                 <div className="flex items-end">
                   <p className="text-xs text-gray-600">Specify weekly $ or per-meal $. Leave blank to skip.</p>
@@ -530,13 +581,9 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-4">
-                <label className="block text-sm font-medium">
-                  Do you have any ingredients on hand that you would like us to use in menu planning for this week?
-                </label>
-                <p className="text-xs text-gray-600">
-                  (please list items with quantity — e.g. 4 roma tomatoes, 2 lb chicken thighs, 3 bell peppers, 4 oz truffle oil)
-                </p>
-                <textarea className="w-full border rounded px-3 py-2 mt-1" rows={3} value={weekly.onHandText} onChange={(e) => setWeekly(w => ({ ...w, onHandText: e.target.value }))} />
+                <label className="block text-sm font-medium">Do you have any ingredients on hand that you would like us to use in menu planning for this week?</label>
+                <p className="text-xs text-gray-600">(please list items with quantity — e.g. 4 roma tomatoes, 2 lb chicken thighs, 3 bell peppers, 4 oz truffle oil)</p>
+                <textarea className="w-full border rounded px-3 py-2 mt-1" rows={3} value={weekly.onHandText} onChange={(e) => setWeekly((w) => ({ ...w, onHandText: e.target.value }))} />
                 <div className="flex items-center gap-3 mt-2">
                   <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50">
                     📷 Camera
@@ -554,8 +601,12 @@ export default function DashboardPage() {
                   {onHandPreview && (
                     <div className="flex items-center gap-3">
                       <img src={onHandPreview} alt="On hand preview" width="64" height="64" className="rounded object-cover" />
-                      <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage}>Submit</button>
-                      <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)}>Retake</button>
+                      <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitOnHandImage}>
+                        Submit
+                      </button>
+                      <button className="px-3 py-2 rounded border bg-white" onClick={() => setOnHandPreview(undefined)}>
+                        Retake
+                      </button>
                     </div>
                   )}
                 </div>
@@ -563,12 +614,12 @@ export default function DashboardPage() {
 
               <div className="mt-4">
                 <label className="block text-sm font-medium">What are you in the mood for this week?</label>
-                <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.mood} onChange={(e) => setWeekly(w => ({ ...w, mood: e.target.value }))} />
+                <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.mood} onChange={(e) => setWeekly((w) => ({ ...w, mood: e.target.value }))} />
               </div>
 
               <div className="mt-4">
                 <label className="block text-sm font-medium">Anything else to see on the menu? (Italian, Ribeye, Pad Thai, etc.)</label>
-                <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.extras} onChange={(e) => setWeekly(w => ({ ...w, extras: e.target.value }))} />
+                <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.extras} onChange={(e) => setWeekly((w) => ({ ...w, extras: e.target.value }))} />
               </div>
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-end">
@@ -577,7 +628,6 @@ export default function DashboardPage() {
                 </button>
                 <div>
                   <N8NGenerate
-                    // hand the real weekly + profile that your generator expects
                     profile={profile}
                     weekly={{
                       dinners: weekly.dinners,
@@ -587,13 +637,11 @@ export default function DashboardPage() {
                       onHandImageDataUrl: weekly.onHandImageDataUrl,
                       mood: weekly.mood,
                       extras: weekly.extras,
-                      // optional passthroughs the component knows how to merge
                       preferredGroceryStore: profile.store,
                       portionsPerDinner: profile.portionDefault,
                     } as any}
                     userEmailFromHeader={userEmail ?? undefined}
                     onSubmitted={() => {
-                      // optional toast or state update
                       console.log('Submitted to n8n');
                     }}
                   />
@@ -601,10 +649,11 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* Menus */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h2 className="text-xl font-bold mb-4">Menus</h2>
               <div className="grid md:grid-cols-2 gap-6">
-                {menus.map(menu => (
+                {menus.map((menu) => (
                   <div key={menu.id} className="border rounded-xl overflow-hidden">
                     <div className="relative h-40 w-full bg-gray-100">
                       <img src={menu.hero} alt={menu.title} className="w-full h-full object-cover" />
@@ -615,14 +664,20 @@ export default function DashboardPage() {
 
                       <div className="flex items-center gap-2 pt-2">
                         <span className="text-sm text-gray-700">Portions:</span>
-                        <button className="px-2 py-1 border rounded" onClick={() => adjustMenuPortions(menu.id, -1)}>-</button>
+                        <button className="px-2 py-1 border rounded" onClick={() => adjustMenuPortions(menu.id, -1)}>
+                          -
+                        </button>
                         <span className="w-10 text-center">{menu.portions}</span>
-                        <button className="px-2 py-1 border rounded" onClick={() => adjustMenuPortions(menu.id, +1)}>+</button>
+                        <button className="px-2 py-1 border rounded" onClick={() => adjustMenuPortions(menu.id, +1)}>
+                          +
+                        </button>
                       </div>
 
                       {!menu.approved ? (
                         <div className="flex items-center gap-3 pt-3">
-                          <button className="px-4 py-2 rounded bg-green-600 text-white" onClick={() => approveMenu(menu)}>Approve</button>
+                          <button className="px-4 py-2 rounded bg-green-600 text-white" onClick={() => approveMenu(menu)}>
+                            Approve
+                          </button>
                           <details className="w-full">
                             <summary className="cursor-pointer text-sm text-gray-700">Suggest a change</summary>
                             <FeedbackForm onSubmit={(text) => submitFeedback(menu, text)} />
@@ -638,19 +693,24 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* Shopping cart */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h2 className="text-xl font-bold mb-4">Shopping Basket</h2>
               <div className="space-y-4">
                 <div className="rounded-lg border p-4 bg-gray-50">
-                  <p className="text-sm">Meal Ingredients Subtotal: <span className="font-semibold">${totalMeal.toFixed(2)}</span></p>
-                  <p className="text-sm">Additional Items Subtotal: <span className="font-semibold">${totalExtra.toFixed(2)}</span></p>
-                  <p className="text-lg">Total: <span className="font-bold">${grandTotal.toFixed(2)}</span></p>
+                  <p className="text-sm">
+                    Meal Ingredients Subtotal: <span className="font-semibold">${totalMeal.toFixed(2)}</span>
+                  </p>
+                  <p className="text-sm">
+                    Additional Items Subtotal: <span className="font-semibold">${totalExtra.toFixed(2)}</span>
+                  </p>
+                  <p className="text-lg">
+                    Total: <span className="font-bold">${grandTotal.toFixed(2)}</span>
+                  </p>
                 </div>
 
                 {withinBudget() ? (
-                  <div className="p-4 rounded bg-green-50 border border-green-200 text-green-800 text-sm">
-                    ✅ Within your budgeting logic. You're good to proceed.
-                  </div>
+                  <div className="p-4 rounded bg-green-50 border border-green-200 text-green-800 text-sm">✅ Within your budgeting logic. You're good to proceed.</div>
                 ) : (
                   <div className="p-4 rounded bg-red-50 border border-red-200 text-red-800 text-sm space-y-2">
                     <p>⚠️ This exceeds your budgeting logic.</p>
@@ -679,12 +739,13 @@ export default function DashboardPage() {
             </div>
           </section>
 
+          {/* Sidebar */}
           <aside className="lg:col-span-1 space-y-6">
             <div className="bg-white rounded-2xl shadow p-6">
               <h3 className="font-bold mb-3">Pantry Tracker</h3>
 
               <div className="space-y-2 mb-4">
-                {pantry.filter(p => p.staple).map(s => (
+                {pantry.filter((p) => p.staple).map((s) => (
                   <div key={s.id} className="flex items-center justify-between">
                     <span>{s.name}</span>
                     <button className="text-sm px-2 py-1 rounded border" onClick={() => reorderPantryStaple(s.name)}>
@@ -713,8 +774,12 @@ export default function DashboardPage() {
                 {pantryPreview && (
                   <div className="flex items-center gap-3 mt-2">
                     <img src={pantryPreview} alt="Pantry preview" width="64" height="64" className="rounded object-cover" />
-                    <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitPantryImage}>Submit</button>
-                    <button className="px-3 py-2 rounded border bg-white" onClick={() => setPantryPreview(undefined)}>Retake</button>
+                    <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitPantryImage}>
+                      Submit
+                    </button>
+                    <button className="px-3 py-2 rounded border bg-white" onClick={() => setPantryPreview(undefined)}>
+                      Retake
+                    </button>
                   </div>
                 )}
               </div>
@@ -722,14 +787,28 @@ export default function DashboardPage() {
               <div className="mt-4">
                 <h4 className="text-sm font-semibold mb-2">Inventory</h4>
                 <div className="space-y-2 max-h-64 overflow-auto pr-1">
-                  {pantry.filter(p => !p.staple).map(item => (
+                  {pantry.filter((p) => !p.staple).map((item) => (
                     <div key={item.id} className="flex items-center justify-between border rounded px-2 py-1">
                       {editingPantryItem === item.id ? (
                         <div className="flex-1 space-y-2">
-                          <input className="w-full border rounded px-2 py-1 text-sm" value={editForm.name} onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))} placeholder="Name" />
+                          <input
+                            className="w-full border rounded px-2 py-1 text-sm"
+                            value={editForm.name}
+                            onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                            placeholder="Name"
+                          />
                           <div className="flex gap-2">
-                            <input className="w-16 border rounded px-2 py-1 text-sm" value={editForm.qty} onChange={(e) => setEditForm(f => ({ ...f, qty: e.target.value }))} placeholder="Qty" />
-                            <select className="border rounded px-2 py-1 text-sm" value={editForm.measure || 'oz'} onChange={(e) => setEditForm(f => ({ ...f, measure: e.target.value as Measure }))}>
+                            <input
+                              className="w-16 border rounded px-2 py-1 text-sm"
+                              value={editForm.qty}
+                              onChange={(e) => setEditForm((f) => ({ ...f, qty: e.target.value }))}
+                              placeholder="Qty"
+                            />
+                            <select
+                              className="border rounded px-2 py-1 text-sm"
+                              value={editForm.measure || 'oz'}
+                              onChange={(e) => setEditForm((f) => ({ ...f, measure: e.target.value as Measure }))}
+                            >
                               <option value="oz">oz</option>
                               <option value="lb">lb</option>
                               <option value="ml">ml</option>
@@ -739,8 +818,12 @@ export default function DashboardPage() {
                             </select>
                           </div>
                           <div className="flex gap-2">
-                            <button className="text-xs px-2 py-1 bg-green-600 text-white rounded" onClick={() => saveEditPantryItem(item.id)}>Save</button>
-                            <button className="text-xs px-2 py-1 border rounded" onClick={() => setEditingPantryItem(null)}>Cancel</button>
+                            <button className="text-xs px-2 py-1 bg-green-600 text-white rounded" onClick={() => saveEditPantryItem(item.id)}>
+                              Save
+                            </button>
+                            <button className="text-xs px-2 py-1 border rounded" onClick={() => setEditingPantryItem(null)}>
+                              Cancel
+                            </button>
                           </div>
                         </div>
                       ) : (
@@ -753,18 +836,23 @@ export default function DashboardPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <button className="text-xs px-2 py-1 border rounded" onClick={() => startEditPantryItem(item)} title="Edit">✏️</button>
-                            <button className="text-xs px-2 py-1 border rounded" onClick={() => setPantry(prev => prev.filter(p => p.id !== item.id))}>Remove</button>
+                            <button className="text-xs px-2 py-1 border rounded" onClick={() => startEditPantryItem(item)} title="Edit">
+                              ✏️
+                            </button>
+                            <button className="text-xs px-2 py-1 border rounded" onClick={() => setPantry((prev) => prev.filter((p) => p.id !== item.id))}>
+                              Remove
+                            </button>
                           </div>
                         </>
                       )}
                     </div>
                   ))}
-                  {pantry.filter(p => !p.staple).length === 0 && <p className="text-xs text-gray-500">No non-staple items yet.</p>}
+                  {pantry.filter((p) => !p.staple).length === 0 && <p className="text-xs text-gray-500">No non-staple items yet.</p>}
                 </div>
               </div>
             </div>
 
+            {/* Bar */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h3 className="font-bold mb-3">Beverage Bar & Mixology Cabinet</h3>
 
@@ -787,8 +875,12 @@ export default function DashboardPage() {
                 {barPreview && (
                   <div className="flex items-center gap-3 mt-2">
                     <img src={barPreview} alt="Bar preview" width="64" height="64" className="rounded object-cover" />
-                    <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitBarImage}>Submit</button>
-                    <button className="px-3 py-2 rounded border bg-white" onClick={() => setBarPreview(undefined)}>Retake</button>
+                    <button className="px-3 py-2 rounded bg-green-600 text-white" onClick={submitBarImage}>
+                      Submit
+                    </button>
+                    <button className="px-3 py-2 rounded border bg-white" onClick={() => setBarPreview(undefined)}>
+                      Retake
+                    </button>
                   </div>
                 )}
               </div>
@@ -796,19 +888,23 @@ export default function DashboardPage() {
               <div className="mt-4">
                 <h4 className="text-sm font-semibold mb-2">Inventory</h4>
                 <div className="space-y-2 max-h-64 overflow-auto pr-1">
-                  {bar.map(item => (
+                  {bar.map((item) => (
                     <div key={item.id} className={`flex items-center justify-between border rounded px-2 py-1 ${!item.active ? 'opacity-60' : ''}`}>
                       <div className="flex-1">
                         <div className="font-medium">{item.name}</div>
                         <div className="text-xs text-gray-600">
-                          {item.qty} {item.measure} · {item.type} {item.perishable ? '· perishable' : ''}{item.active ? ' · Active' : ' · Inactive'}
+                          {item.qty} {item.measure} · {item.type} {item.perishable ? '· perishable' : ''}
+                          {item.active ? ' · Active' : ' · Inactive'}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button className="text-xs px-2 py-1 border rounded" onClick={() => setBar(prev => prev.map(b => b.id === item.id ? { ...b, active: !b.active, updatedAt: now() } : b))}>
+                        <button
+                          className="text-xs px-2 py-1 border rounded"
+                          onClick={() => setBar((prev) => prev.map((b) => (b.id === item.id ? { ...b, active: !b.active, updatedAt: now() } : b)))}
+                        >
                           {item.active ? 'Deactivate' : 'Activate'}
                         </button>
-                        <button className="text-xs px-2 py-1 border rounded" onClick={() => setBar(prev => prev.filter(b => b.id !== item.id))}>
+                        <button className="text-xs px-2 py-1 border rounded" onClick={() => setBar((prev) => prev.filter((b) => b.id !== item.id))}>
                           Remove
                         </button>
                       </div>
@@ -818,8 +914,12 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-4 flex gap-2">
-                <button className="flex-1 px-3 py-2 rounded bg-pink-500 text-white" onClick={createMocktail}>Create Mocktail</button>
-                <button className="flex-1 px-3 py-2 rounded bg-purple-600 text-white" onClick={createCocktail}>Create Cocktail</button>
+                <button className="flex-1 px-3 py-2 rounded bg-pink-500 text-white" onClick={createMocktail}>
+                  Create Mocktail
+                </button>
+                <button className="flex-1 px-3 py-2 rounded bg-purple-600 text-white" onClick={createCocktail}>
+                  Create Cocktail
+                </button>
               </div>
 
               {beverageRecipe && (
@@ -860,10 +960,7 @@ function FeedbackForm({ onSubmit }: { onSubmit: (text: string) => void }) {
     <div className="mt-2 border rounded p-3">
       <textarea className="w-full border rounded px-3 py-2 text-sm" rows={3} placeholder="Tell us what you'd like instead..." value={text} onChange={(e) => setText(e.target.value)} />
       <div className="mt-2 flex justify-end">
-        <button
-          className="px-3 py-2 rounded bg-blue-600 text-white"
-          onClick={() => { if (text.trim()) onSubmit(text.trim()); setText(''); }}
-        >
+        <button className="px-3 py-2 rounded bg-blue-600 text-white" onClick={() => { if (text.trim()) onSubmit(text.trim()); setText(''); }}>
           Submit Feedback
         </button>
       </div>
@@ -894,14 +991,11 @@ function AddExtraItem({ onAdd }: { onAdd: (name: string, qty: number, measure: M
         <input type="number" className="border rounded px-3 py-2" placeholder="Est. Price ($)" value={price} onChange={(e) => setPrice(Math.max(0, toNumber(e.target.value, 0)))} />
       </div>
       <div className="mt-2 flex justify-end">
-        <button
-          className="px-4 py-2 rounded bg-indigo-600 text-white"
-          onClick={() => {
-            if (!name.trim()) return;
-            onAdd(name.trim(), qty, measure, +price.toFixed(2));
-            setName(''); setQty(1); setMeasure('count'); setPrice(1.99);
-          }}
-        >
+        <button className="px-4 py-2 rounded bg-indigo-600 text-white" onClick={() => {
+          if (!name.trim()) return;
+          onAdd(name.trim(), qty, measure, +price.toFixed(2));
+          setName(''); setQty(1); setMeasure('count'); setPrice(1.99);
+        }}>
           Add
         </button>
       </div>
@@ -915,18 +1009,22 @@ function CartSection({ title, lines }: { title: string; lines: CartLine[] }) {
     <div className="border rounded p-4 bg-white">
       <h4 className="font-semibold mb-2">{title}</h4>
       <div className="space-y-2 max-h-60 overflow-auto pr-1">
-        {lines.map(l => (
+        {lines.map((l) => (
           <div key={l.id} className="flex items-center justify-between border rounded px-2 py-1">
             <div className="flex-1">
               <div className="font-medium">{l.name}</div>
-              <div className="text-xs text-gray-600">{l.qty} {l.measure}</div>
+              <div className="text-xs text-gray-600">
+                {l.qty} {l.measure}
+              </div>
             </div>
             <div className="font-medium">${l.estPrice.toFixed(2)}</div>
           </div>
         ))}
         {lines.length === 0 && <p className="text-xs text-gray-500">No items yet.</p>}
       </div>
-      <div className="mt-2 text-right text-sm">Subtotal: <span className="font-semibold">${subtotal.toFixed(2)}</span></div>
+      <div className="mt-2 text-right text-sm">
+        Subtotal: <span className="font-semibold">${subtotal.toFixed(2)}</span>
+      </div>
     </div>
   );
 }
@@ -960,16 +1058,13 @@ function PantryAddForm({ onAdd }: { onAdd: (name: string, qty: number | null, me
         </select>
       </div>
       <div className="mt-2 flex justify-end">
-        <button
-          className="px-3 py-2 rounded bg-gray-800 text-white text-sm"
-          onClick={() => {
-            if (!name.trim()) return;
-            const q = qty.trim() === '' ? null : Math.max(0, toNumber(qty, 0));
-            const m = qty.trim() === '' ? null : measure;
-            onAdd(name.trim(), q, m, type);
-            setName(''); setQty(''); setType('other'); setMeasure('oz');
-          }}
-        >
+        <button className="px-3 py-2 rounded bg-gray-800 text-white text-sm" onClick={() => {
+          if (!name.trim()) return;
+          const q = qty.trim() === '' ? null : Math.max(0, toNumber(qty, 0));
+          const m = qty.trim() === '' ? null : measure;
+          onAdd(name.trim(), q, m, type);
+          setName(''); setQty(''); setType('other'); setMeasure('oz');
+        }}>
           Add
         </button>
       </div>
@@ -1006,14 +1101,11 @@ function BarAddForm({ onAdd }: { onAdd: (name: string, qty: number, measure: Mea
         </select>
       </div>
       <div className="mt-2 flex justify-end">
-        <button
-          className="px-3 py-2 rounded bg-gray-800 text-white text-sm"
-          onClick={() => {
-            if (!name.trim()) return;
-            onAdd(name.trim(), qty, measure, type);
-            setName(''); setQty(1); setMeasure('oz'); setType('spirit');
-          }}
-        >
+        <button className="px-3 py-2 rounded bg-gray-800 text-white text-sm" onClick={() => {
+          if (!name.trim()) return;
+          onAdd(name.trim(), qty, measure, type);
+          setName(''); setQty(1); setMeasure('oz'); setType('spirit');
+        }}>
           Add
         </button>
       </div>
