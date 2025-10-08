@@ -1,16 +1,29 @@
-// Runtime: Next.js App Router API Route
+// src/app/api/n8n/trigger/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import crypto from "crypto";
-import { createClient } from "@supabase/supabase-js";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
-// ----- TYPES your n8n flow expects -----
+// If you already have a server helper that can read the auth cookie (anon client), use it:
+import { createClient as createServerClient } from "@/lib/supabase/server"; // <— your existing wrapper
+
+// ---------------- ENV ----------------
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; // required (Server only)
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL!;
+
+const admin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+// ---------------- TYPES ----------------
 type Basic = {
   firstName: string;
   lastName: string;
   email: string;
   accountAddress?: { street?: string; city?: string; state?: string; zipcode?: string };
 };
+
 type ClientPayload = {
   basicInformation?: Partial<Basic>;
   householdSetup?: any;
@@ -20,16 +33,14 @@ type ClientPayload = {
   extra?: any;
 };
 
-// ----- ENV / SUPABASE -----
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL!;
+type Incoming = {
+  client?: ClientPayload;
+  generate?: any;
+};
 
-const sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+// ---------------- HELPERS ----------------
+const TABLES = ["profiles", "client_profiles", "ic_accounts", "accounts", "users"]; // keep only the one you use if you prefer
 
-// ----- HELPERS -----
 function buildCallbackUrl() {
   const explicit = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/+$/, "");
   if (explicit) return `${explicit}/api/n8n/callback`;
@@ -40,7 +51,7 @@ function buildCallbackUrl() {
 }
 
 function merge<A extends object, B extends object>(a?: A, b?: B) {
-  // caller (a) wins; DB (b) fills blanks
+  // a (incoming client) wins; b (DB) fills gaps
   return { ...(b || {}), ...(a || {}) };
 }
 
@@ -59,19 +70,15 @@ function namesFromEmail(email?: string) {
   return p.length === 1 ? { firstName: p[0], lastName: "" } : { firstName: p[0], lastName: p.slice(1).join(" ") };
 }
 
-// Normalize *whatever* row shape you have into the structure n8n expects
-function rowToClientParts(row: any): Partial<ClientPayload> {
+function mapRowToClient(row: any): Partial<ClientPayload> {
   if (!row) return {};
 
-  // Try several common field names; adjust if your columns differ
   const firstName = row.first_name ?? row.firstName ?? row.given_name ?? "";
   const lastName = row.last_name ?? row.lastName ?? row.family_name ?? "";
   const email = row.email ?? row.user_email ?? "";
-
-  // address may be nested or flat
+  
   const address =
-    row.address ||
-    {
+    row.address || {
       street: row.address_street ?? row.street ?? "",
       city: row.address_city ?? row.city ?? "",
       state: row.address_state ?? row.state ?? "",
@@ -115,82 +122,82 @@ function rowToClientParts(row: any): Partial<ClientPayload> {
   const shoppingPreferences = {
     storesNearMe: Array.isArray(row.stores_nearby) ? row.stores_nearby : splitCSV(row.stores_nearby),
     preferredGroceryStore: row.preferred_store ?? row.grocery_store ?? "",
-    preferOrganic: row.organic_preference ?? row.prefer_organic ?? "I dont care",
-    preferNationalBrands: row.brand_preference ?? row.prefer_national_brands ?? "No preference",
+    preferOrganic: row.organic_preference ?? row.prefer_organic ?? "",
+    preferNationalBrands: row.brand_preference ?? row.prefer_national_brands ?? "",
   };
 
   return { basicInformation, householdSetup, cookingPreferences, dietaryProfile, shoppingPreferences };
 }
 
-// Try to fetch a profile row by user_id or email from any of these common tables.
-// Keep the table you actually use; this makes it work even if you’ve renamed it in older branches.
-const CANDIDATE_TABLES = [
-  "profiles",
-  "client_profiles",
-  "accounts",
-  "ic_accounts",
-  "users",
-];
-
-async function fetchProfileRow({ userId, email }: { userId?: string; email?: string }) {
-  for (const table of CANDIDATE_TABLES) {
+async function fetchProfileBy({ userId, email }: { userId?: string; email?: string }) {
+  for (const table of TABLES) {
     try {
-      let q = sbAdmin.from(table).select("*").limit(1);
-
-      if (userId && "user_id" in (await q.clone().select("user_id").abortSignal(new AbortController().signal))) {
-        const { data, error } = await sbAdmin.from(table).select("*").eq("user_id", userId).limit(1);
-        if (!error && data && data.length) return { row: data[0], table };
+      if (userId) {
+        const { data, error } = await admin.from(table).select("*").eq("user_id", userId).limit(1);
+        if (!error && data?.length) return data[0];
       }
-
       if (email) {
-        const { data, error } = await sbAdmin.from(table).select("*").eq("email", email).limit(1);
-        if (!error && data && data.length) return { row: data[0], table };
+        const { data, error } = await admin.from(table).select("*").eq("email", email).limit(1);
+        if (!error && data?.length) return data[0];
       }
     } catch {
-      // ignore and try next table
+      // try next table
     }
   }
-  return { row: null as any, table: null as any };
+  return null;
 }
 
-// ----- ROUTE -----
+// ---------------- ROUTE ----------------
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const incoming = (await req.json().catch(() => ({}))) as { client?: ClientPayload; generate?: any };
+    const incoming = (await req.json().catch(() => ({}))) as Incoming;
     const clientIn = incoming.client || {};
 
-    // 1) Identify user/email from the body first, then from your DB (service role can query session tables if you store them)
-    let email = (clientIn.basicInformation?.email || "").trim();
+    // 1) Get the authenticated user (from cookies) via your server anon client
+    const server = createServerClient(cookies());
+    const { data: userData } = await server.auth.getUser().catch(() => ({ data: null as any }));
+    const authUser = userData?.user;
 
-    // If email is still empty, try to infer from any DB row keyed by user_id you might be sending in 'extra'
-    let userId = (clientIn as any)?.extra?.userId || (clientIn as any)?.userId || undefined;
+    // Candidate identifiers
+    const userId: string | undefined =
+      (clientIn as any)?.extra?.userId ||
+      authUser?.id ||
+      undefined;
 
-    // 2) Pull the row from Supabase (by user_id or email)
-    const { row } = await fetchProfileRow({ userId, email });
+    let email: string =
+      (clientIn.basicInformation?.email || "").trim() ||
+      (authUser?.email || authUser?.user_metadata?.email || "").trim();
 
-    // 3) Map DB row to your client parts & derive names if needed
-    const fromDb = rowToClientParts(row);
+    // 2) Pull profile row by userId/email using Service Role
+    const row = await fetchProfileBy({ userId, email });
 
-    // If we still don't have an email, try to take it from DB row now
-    if (!email && (fromDb.basicInformation?.email || row?.email)) {
-      email = (fromDb.basicInformation?.email || row?.email || "").trim();
+    // 3) Map DB row to our pieces and derive names if still missing
+    const fromDb = mapRowToClient(row);
+
+    if (!email && (fromDb.basicInformation?.email || (row as any)?.email)) {
+      email = (fromDb.basicInformation?.email || (row as any)?.email || "").trim();
     }
-
-    // Derive names from email if missing
     const derived = namesFromEmail(email);
-    const basic: Partial<Basic> = {
+
+    const basicMerged: Partial<Basic> = {
       email,
-      firstName: (clientIn.basicInformation?.firstName || fromDb.basicInformation?.firstName || derived.firstName || "").trim(),
-      lastName: (clientIn.basicInformation?.lastName || fromDb.basicInformation?.lastName || derived.lastName || "").trim(),
+      firstName: (clientIn.basicInformation?.firstName ||
+        fromDb.basicInformation?.firstName ||
+        derived.firstName ||
+        "").trim(),
+      lastName: (clientIn.basicInformation?.lastName ||
+        fromDb.basicInformation?.lastName ||
+        derived.lastName ||
+        "").trim(),
     };
 
-    // 4) Build final client payload: client wins, DB fills blanks
+    // 4) Final client = clientIn wins, DB fills gaps
     const client: ClientPayload = {
       ...clientIn,
-      basicInformation: merge(clientIn.basicInformation, { ...fromDb.basicInformation, ...basic }),
+      basicInformation: merge(clientIn.basicInformation, { ...fromDb.basicInformation, ...basicMerged }),
       householdSetup: merge(clientIn.householdSetup, fromDb.householdSetup),
       cookingPreferences: merge(clientIn.cookingPreferences, fromDb.cookingPreferences),
       dietaryProfile: merge(clientIn.dietaryProfile, fromDb.dietaryProfile),
@@ -201,10 +208,11 @@ export async function POST(req: NextRequest) {
     if (!N8N_WEBHOOK_URL) {
       return NextResponse.json({ ok: false, error: "N8N_WEBHOOK_URL is not set" }, { status: 500 });
     }
+
     const correlationId = crypto.randomUUID();
     const callbackUrl = buildCallbackUrl();
 
-    const forward = {
+    const payload = {
       client,
       generate: incoming.generate || { menus: true, heroImages: true, menuCards: true, receipt: true },
       correlationId,
@@ -214,14 +222,14 @@ export async function POST(req: NextRequest) {
     const f = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(forward),
+      body: JSON.stringify(payload),
     });
 
     if (!f.ok) {
       const text = await f.text().catch(() => "");
       return NextResponse.json(
         { ok: false, error: `n8n error ${f.status}`, details: text?.slice(0, 2000) },
-        { status: 502 },
+        { status: 502 }
       );
     }
 
