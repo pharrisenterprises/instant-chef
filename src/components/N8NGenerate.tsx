@@ -2,7 +2,14 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { v4 as uuidv4 } from 'uuid';
+
+const makeId = () =>
+  (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+// const correlationId = uuidv4();
+const correlationId = makeId();
+
 
 export type BasicInformation = {
   firstName: string;
