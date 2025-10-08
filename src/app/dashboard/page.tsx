@@ -1,17 +1,17 @@
 'use client';
 
-import dynamic from 'next/dynamic'; // ADD THIS
+import nextDynamic from 'next/dynamic'; // ✅ rename to avoid collision
 
-export const dynamic = 'force-dynamic';
-
+export const dynamic = 'force-dynamic'; // ✅ this can stay
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-const N8NGenerate = dynamic(() => import('../../components/N8NGenerate'), {
+const N8NGenerate = nextDynamic(() => import('../../components/N8NGenerate'), {
   ssr: false,
 });
+
 
 /* -------------------- LocalStorage keys -------------------- */
 const LS = {
