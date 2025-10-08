@@ -1,138 +1,119 @@
+// src/components/N8NGenerate.tsx
 "use client";
+
 import { useState } from "react";
+import type { Profile, Weekly } from "@/lib/types";
 
-type Basic = {
-  firstName: string; lastName: string; email: string;
-  accountAddress?: { street?: string; city?: string; state?: string; zipcode?: string };
-};
-type ClientPayload = {
-  basicInformation?: Partial<Basic>;
-  householdSetup?: any;
-  cookingPreferences?: any;
-  dietaryProfile?: any;
-  shoppingPreferences?: any;
-  extra?: any;
+type Props = {
+  profile: Profile;
+  weekly: Weekly;
+  /** Optional: if you show the signed-in email in the header, pass it here */
+  userEmailFromHeader?: string;
+  /** Optional callback after a successful submit */
+  onSubmitted?: (result: any) => void;
 };
 
-function readLS<T>(k: string, fb: T): T {
-  try { const r = localStorage.getItem(k); return r ? JSON.parse(r) as T : fb; } catch { return fb; }
-}
-function split(v?: string) {
-  return (v || "").split(",").map(s => s.trim()).filter(Boolean);
-}
-function pickProfile(): Partial<ClientPayload> {
-  // Read from both the new and historical keys so it works across your old pages
-  const acct = readLS<any>("accountProfile", null) ?? readLS<any>("IC_ACCOUNT", null) ?? null;
-  const basicOld = readLS<any>("IC_BASIC", null);
-  const houseOld = readLS<any>("IC_HOUSE", null);
-  const cookOld  = readLS<any>("IC_COOK", null);
-  const dietOld  = readLS<any>("IC_DIET", null);
-  const shopOld  = readLS<any>("IC_SHOP", null);
+export default function N8NGenerate({
+  profile,
+  weekly,
+  userEmailFromHeader,
+  onSubmitted,
+}: Props) {
+  const [loading, setLoading] = useState(false);
 
-  const basicInformation: Partial<Basic> = acct ? {
-    firstName: acct.firstName || "",
-    lastName:  acct.lastName  || "",
-    email:     acct.email     || "",
-    accountAddress: {
-      street:  acct.address?.street  || "",
-      city:    acct.address?.city    || "",
-      state:   acct.address?.state   || "",
-      zipcode: acct.address?.zipcode || "",
-    }
-  } : basicOld ? {
-    firstName: basicOld.firstName || "",
-    lastName:  basicOld.lastName  || "",
-    email:     basicOld.email     || "",
-    accountAddress: {
-      street: basicOld.street || "",
-      city:   basicOld.city   || "",
-      state:  basicOld.state  || "",
-      zipcode: basicOld.zipcode || "",
-    }
-  } : {};
-
-  const householdSetup = acct ? {
-    adults: +acct.adults || 0, teens: +acct.teens || 0, children: +acct.children || 0,
-    toddlersInfants: +acct.toddlers || 0,
-    portionsPerDinner: +acct.portionsPerMeal || 0,
-    dinnersPerWeek: +acct.dinnersPerWeek || 0,
-  } : (houseOld || {});
-
-  const cookingPreferences = acct ? {
-    cookingSkill: acct.cookingSkill || "Beginner",
-    cookingTimePreference: acct.cookingTime || "30 min",
-    equipment: Array.isArray(acct.equipment) ? acct.equipment : split(acct.equipment),
-  } : (cookOld || {});
-
-  const dietaryProfile = acct ? {
-    allergiesRestrictions: split(acct.allergies),
-    dislikesAvoidList: split(acct.dislikes),
-    dietaryPrograms: split(acct.dietaryPrograms),
-    notes: acct.macros || "",
-  } : (dietOld || {});
-
-  const shoppingPreferences = acct ? {
-    storesNearMe: split(acct.storesNearby),
-    preferredGroceryStore: acct.preferredStore || "",
-    preferOrganic: acct.organicPreference || "I dont care",
-    preferNationalBrands: acct.brandPreference || "No preference",
-  } : (shopOld || {});
-
-  return { basicInformation, householdSetup, cookingPreferences, dietaryProfile, shoppingPreferences };
-}
-function mergeSection<T extends object>(a?: T, b?: T): T {
-  // Caller wins; profile fills gaps.
-  return { ...(b || {}), ...(a || {}) } as T;
-}
-
-export default function N8NGenerate({ client }: { client: ClientPayload }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function run() {
+  // ---- NEW: server-routed submit that merges Account Profile from Supabase ----
+  async function submitToN8N() {
     try {
-      setErr(null);
-      setBusy(true);
+      setLoading(true);
 
-      // Enrich with any saved Account Profile we can find
-      const p = pickProfile();
-      const merged: ClientPayload = {
-        ...client,
-        basicInformation: mergeSection(client?.basicInformation, p.basicInformation),
-        householdSetup: mergeSection(client?.householdSetup, p.householdSetup),
-        cookingPreferences: mergeSection(client?.cookingPreferences, p.cookingPreferences),
-        dietaryProfile: mergeSection(client?.dietaryProfile, p.dietaryProfile),
-        shoppingPreferences: mergeSection(client?.shoppingPreferences, p.shoppingPreferences),
-      };
+      // Prefer the profile email; fall back to header if provided
+      const email =
+        // some codebases keep email at profile.basicInformation.email; others at profile.email
+        (profile as any)?.basicInformation?.email ||
+        (profile as any)?.email ||
+        userEmailFromHeader ||
+        "";
 
-      // Do NOT block on the client; the server will back-fill from Supabase if needed
-      const res = await fetch("/api/n8n/trigger", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          client: merged,
-          generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
-        }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || j?.ok === false) {
-        throw new Error(j?.error || `Trigger failed (${res.status})`);
+      if (!email) {
+        alert("Email is required to submit.");
+        setLoading(false);
+        return;
       }
 
-      // …(your existing polling for /api/n8n/callback can stay as-is here)…
-    } catch (e: any) {
-      setErr(e?.message || "Failed to start");
-    } finally {
-      setBusy(false);
+      // Map your current UI state shape to the server’s expected "weekly" shape.
+      // - WeeklyPlanner uses: weekly.dinners, weekly.onHandText, weekly.mood, weekly.extras
+      // - Profile carries: portionDefault (portions per dinner), store (preferred grocery store)
+      const body = {
+        email,
+        weekly: {
+          portionsPerDinner:
+            (profile as any)?.portionDefault ?? (weekly as any)?.portionsPerDinner ?? 0,
+          dinnersPerWeek: (weekly as any)?.dinners ?? (weekly as any)?.dinnersPerWeek ?? 0,
+
+          preferredGroceryStore:
+            (profile as any)?.store ??
+            (weekly as any)?.preferredGroceryStore ??
+            undefined,
+
+          // If you track these in profile/weekly, pass them through. Otherwise undefined is fine.
+          preferOrganic: (profile as any)?.preferOrganic ?? (weekly as any)?.preferOrganic,
+          preferNationalBrands:
+            (profile as any)?.preferNationalBrands ?? (weekly as any)?.preferNationalBrands,
+
+          weeklyMood: (weekly as any)?.mood ?? "",
+          weeklyExtras: (weekly as any)?.extras ?? "",
+          weeklyOnHandText: (weekly as any)?.onHandText ?? "",
+
+          // If your Weekly state already holds these snapshots, they’ll flow through.
+          pantrySnapshot: (weekly as any)?.pantrySnapshot ?? [],
+          barSnapshot: (weekly as any)?.barSnapshot ?? [],
+          currentMenusCount: (weekly as any)?.currentMenusCount ?? 0,
+        },
+
+        // You can tweak these flags as needed
+        generate: { menus: true, heroImages: true, menuCards: true, receipt: true },
+
+        // Correlation + callback to track async n8n work
+        correlationId:
+          (typeof crypto !== "undefined" && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `corr-${Date.now()}`,
+        callbackUrl: `${window.location.origin}/api/n8n/callback`,
+      };
+
+      const resp = await fetch("/api/n8n/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const json = await resp.json();
+      if (!resp.ok || !json?.ok) {
+        console.error("n8n forward failed:", json);
+        alert("Could not submit to n8n. Check console for details.");
+        setLoading(false);
+        return;
+      }
+
+      onSubmitted?.(json);
+      setLoading(false);
+      // Optional UX: toast/snackbar here
+    } catch (err) {
+      console.error(err);
+      alert("Unexpected error while submitting to n8n.");
+      setLoading(false);
     }
   }
 
   return (
-    <div className="space-y-3">
-      <button disabled={busy} onClick={run} className="px-4 py-2 rounded bg-black text-white">
-        {busy ? "Generating…" : "Generate Menu"}
+    <div className="flex gap-3 justify-end">
+      <button
+        onClick={submitToN8N}
+        disabled={loading}
+        className="px-5 py-2 rounded bg-black text-white disabled:opacity-60"
+      >
+        {loading ? "Submitting…" : "Generate Menu"}
       </button>
-      {err && <div className="text-red-600 text-sm">{err}</div>}
     </div>
   );
 }
