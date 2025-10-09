@@ -1,73 +1,36 @@
 // app/api/n8n/callback/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient as createSupabase } from '@supabase/supabase-js';
+import { NextRequest } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 
-export const runtime = 'nodejs'; // important for admin client
-
-// Use admin client (service role)
-const supabase = createSupabase(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // set this in Vercel Project → Settings → Environment Variables
-  { auth: { persistSession: false } }
-);
-
-type IncomingItem = {
-  orderId: string;
-  correlationId?: string;
-  menu?: {
-    id: string;
-    title: string;
-    description?: string;
-    hero?: string | null;     // public URL from Drive/Imagen
-    approved?: boolean;
-    ingredients?: any[];      // keep as JSON
-  };
-};
+// (optional) force dynamic so Vercel doesn't cache
+export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const items: IncomingItem[] = Array.isArray(body) ? body : [body];
-
-    // Basic sanity
-    if (!items.length) {
-      return NextResponse.json({ ok: false, error: 'Empty payload' }, { status: 400 });
-    }
-
-    for (const item of items) {
-      if (!item?.orderId || !item?.menu) continue;
-
-      const { orderId, correlationId, menu } = item;
-
-      // optional: make sure order exists
-      const { data: orderRow, error: orderErr } = await supabase
-        .from('orders')
-        .select('id')
-        .eq('id', orderId)
-        .single();
-      if (orderErr) throw orderErr;
-
-      // upsert menu row
-      const upsert = {
-        id: menu.id,                 // deterministic slug you created in n8n "Set" node
-        order_id: orderId,           // FK
-        title: menu.title,
-        description: menu.description ?? null,
-        hero: menu.hero ?? null,     // URL
-        approved: menu.approved ?? false,
-        ingredients: menu.ingredients ?? [],
-        correlation_id: correlationId ?? null,
-      };
-
-      const { error: menuErr } = await supabase
-        .from('menus')
-        .upsert(upsert, { onConflict: 'id' });
-      if (menuErr) throw menuErr;
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    console.error('n8n callback error:', e);
-    return NextResponse.json({ ok: false, error: e?.message ?? 'Unknown error' }, { status: 500 });
+  // Optional: verify a shared secret so only n8n can call this
+  const secret = process.env.IC_WEBHOOK_SECRET
+  const got = req.headers.get('x-ic-webhook-secret')
+  if (secret && got !== secret) {
+    return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401 })
   }
+
+  const payload = await req.json()
+  const supabase = createClient()
+
+  // Basic validation
+  if (!payload?.orderId || !Array.isArray(payload?.menus)) {
+    return new Response(JSON.stringify({ ok: false, error: 'bad payload' }), { status: 400 })
+  }
+
+  // Save menus onto the order row (or into your own menus table)
+  const { error } = await supabase
+    .from('orders')
+    .update({ menus: payload.menus })
+    .eq('id', payload.orderId)
+
+  if (error) {
+    console.error(error)
+    return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500 })
+  }
+
+  return new Response(JSON.stringify({ ok: true }), { status: 200 })
 }
