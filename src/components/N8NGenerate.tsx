@@ -154,8 +154,12 @@ export default function N8NGenerate({
         pantrySnapshot: w.pantrySnapshot ?? client.extra?.pantrySnapshot ?? [],
         barSnapshot: w.barSnapshot ?? client.extra?.barSnapshot ?? [],
         currentMenusCount: w.currentMenusCount ?? client.extra?.currentMenusCount ?? 0,
-        budgetType: (weekly.budgetType ?? client.extra?.budgetType ?? null),
-        budgetValue: (weekly.budgetValue ?? client.extra?.budgetValue ?? null), 
+
+        // ✅ use w, not weekly — and normalize the string so both UI styles work
+        budgetType: normalizeBudgetType(
+          w.budgetType ?? client.extra?.budgetType ?? null
+        ),
+        budgetValue: (w.budgetValue ?? client.extra?.budgetValue ?? null),
       } as ClientPayload['extra'];
 
       const clientPayload: ClientPayload = {

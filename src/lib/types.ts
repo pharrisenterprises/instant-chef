@@ -46,8 +46,8 @@ export type Profile = { portionDefault: number; store: string }
 
 export type Weekly = {
   dinners: number
-  budgetType: 'none' | 'perWeek' | 'perMeal'
-  budgetValue?: number
+  budgetType?: 'none' | 'perWeek' | 'perMeal' | 'per_week' | 'per_meal' | null;
+  budgetValue?: number | null;
   onHandText: string
   onHandImageDataUrl?: string
   mood: string
