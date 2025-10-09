@@ -275,3 +275,4 @@ export default function N8NGenerate({
     </button>
   );
 }
+
