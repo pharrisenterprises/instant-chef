@@ -105,7 +105,7 @@ const toNumber = (v: any, fallback = 0) => (Number.isFinite(+v) ? +v : fallback)
 
 const defaultProfile: Profile = { portionDefault: 4, store: 'Kroger' };
 const defaultWeekly: Weekly = { dinners: 3, budgetType: 'none', budgetValue: undefined, onHandText: '', onHandImageDataUrl: undefined, mood: '', extras: '' };
-
+/*
 const SAMPLE_MENUS: Omit<MenuItem, 'portions' | 'approved'>[] = [
   {
     id: 'm1',
@@ -147,7 +147,7 @@ const SAMPLE_MENUS: Omit<MenuItem, 'portions' | 'approved'>[] = [
     ],
   },
 ];
-
+*/
 const defaultPantry: PantryItem[] = [
   { id: uid(), name: 'Salt', qty: null, measure: null, staple: true, active: true, updatedAt: now(), type: 'spice' },
   { id: uid(), name: 'Pepper', qty: null, measure: null, staple: true, active: true, updatedAt: now(), type: 'spice' },
