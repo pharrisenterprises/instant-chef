@@ -65,6 +65,8 @@ export type ClientPayload = {
     pantrySnapshot: any[];
     barSnapshot: any[];
     currentMenusCount: number;
+    budgetType?: 'per_week' | 'per_meal' | null;
+    budgetValue?: number | null;
   };
 };
 
@@ -173,6 +175,8 @@ export default function N8NGenerate({ client }: { client: ClientPayload }) {
         pantrySnapshot: client.extra?.pantrySnapshot ?? [],
         barSnapshot: client.extra?.barSnapshot ?? [],
         currentMenusCount: client.extra?.currentMenusCount ?? 0,
+        budgetType: client.extra?.budgetType ?? null,   // normalize to 'per_week' | 'per_meal'
+        budgetValue: client.extra?.budgetValue ?? null,
       };
 
       const clientPayload: ClientPayload = {
