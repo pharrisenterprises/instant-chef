@@ -174,7 +174,7 @@ export default function WeeklyPlanner({
       </div>
 
       <div className="mt-6 flex justify-end">
-        <button className="px-5 py-2 rounded bg-green-600 text-white" onClick={generateMenus}>
+        <button className="px-5 py-2 rounded bg-green-600 text-white" onClick={generateMenus} disabled>
           Generate Menu
         </button>
       </div>
