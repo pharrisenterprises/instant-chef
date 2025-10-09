@@ -45,14 +45,19 @@ export type BarItem = {
 export type Profile = { portionDefault: number; store: string }
 
 export type Weekly = {
-  dinners: number
-  budgetType: 'none' | 'perWeek' | 'perMeal'
-  budgetValue?: number
-  onHandText: string
-  onHandImageDataUrl?: string
-  mood: string
-  extras: string
-}
+  dinners: number;
+  budgetType?: 'none' | 'perWeek' | 'perMeal' | 'per_week' | 'per_meal' | null;
+  budgetValue?: number | null;
+  onHandText: string;
+  onHandImageDataUrl?: string;
+  mood: string;
+  extras: string;
+  // add the fields the planner/payload use
+  pantrySnapshot?: PantryItem[];
+  barSnapshot?: BarItem[];
+  currentMenusCount?: number;
+};
+
 
 // n8n payload helper types (optional but nice)
 export type BasicInformation = {

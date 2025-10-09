@@ -65,14 +65,41 @@ export type ClientPayload = {
     pantrySnapshot: any[];
     barSnapshot: any[];
     currentMenusCount: number;
+    budgetType?: 'per_week' | 'per_meal' | null;
+    budgetValue?: number | null;
   };
 };
 
+export type WeeklyMinimal = {
+  mood?: string | null;
+  extras?: string | null;
+  onHandText?: string | null;
+  pantrySnapshot?: any[];
+  barSnapshot?: any[];
+  currentMenusCount?: number | null;
+  budgetType?: 'per_week' | 'per_meal' | null;
+  budgetValue?: number | null;
+};
+
+function normalizeBudgetType(t?: string | null): 'per_week' | 'per_meal' | null {
+  if (!t) return null;
+  const s = t.toLowerCase();
+  if (s === 'per_week' || s.includes('per week')) return 'per_week';
+  if (s === 'per_meal' || s.includes('per meal')) return 'per_meal';
+  return null;
+}
+
 /* ================= Component ================= */
 
-export default function N8NGenerate({ client }: { client: ClientPayload }) {
+export default function N8NGenerate({
+  client,
+  weekly, // <- must be passed by the parent (DashboardClient)
+}: {
+  client: ClientPayload;
+  weekly?: WeeklyMinimal;
+}) {
   const [busy, setBusy] = useState(false);
-  const supabase = createClient(); // <-- this fixes "reading 'auth'"
+  const supabase = createClient();
 
   // helpers
   const strToArr = (s?: string | null) => {
@@ -166,14 +193,19 @@ export default function N8NGenerate({ client }: { client: ClientPayload }) {
         preferNationalBrands: natBrands((profile as any)?.brand_preference),
       };
 
+      // 4) weekly/extra (defensive: prefer live weekly, fall back to client.extra)
+      const w = weekly ?? {};
       const extra = {
-        weeklyMood: client.extra?.weeklyMood ?? '',
-        weeklyExtras: client.extra?.weeklyExtras ?? '',
-        weeklyOnHandText: client.extra?.weeklyOnHandText ?? '',
-        pantrySnapshot: client.extra?.pantrySnapshot ?? [],
-        barSnapshot: client.extra?.barSnapshot ?? [],
-        currentMenusCount: client.extra?.currentMenusCount ?? 0,
-      };
+        weeklyMood: (w.mood ?? client.extra?.weeklyMood ?? '').toString(),
+        weeklyExtras: (w.extras ?? client.extra?.weeklyExtras ?? '').toString(),
+        weeklyOnHandText: (w.onHandText ?? client.extra?.weeklyOnHandText ?? '').toString(),
+        pantrySnapshot: w.pantrySnapshot ?? client.extra?.pantrySnapshot ?? [],
+        barSnapshot: w.barSnapshot ?? client.extra?.barSnapshot ?? [],
+        currentMenusCount: w.currentMenusCount ?? client.extra?.currentMenusCount ?? 0,
+        // ✅ budget from w (safe) with normalization
+        budgetType: normalizeBudgetType(w.budgetType ?? client.extra?.budgetType ?? null),
+        budgetValue: w.budgetValue ?? client.extra?.budgetValue ?? null,
+      } as ClientPayload['extra'];
 
       const clientPayload: ClientPayload = {
         basicInformation,
@@ -184,7 +216,7 @@ export default function N8NGenerate({ client }: { client: ClientPayload }) {
         extra,
       };
 
-      // 4) create order row (and return it immediately)
+      // 5) create order row (and return it immediately)
       const correlationId = makeId();
       const siteUrl =
         process.env.NEXT_PUBLIC_SITE_URL ||
@@ -207,6 +239,9 @@ export default function N8NGenerate({ client }: { client: ClientPayload }) {
         n8n_webhook_url: n8nUrl,
       };
 
+      // Debug once if you like:
+      // console.log('[N8NGenerate] extra to insert:', extra);
+
       const { data: inserted, error: insertErr } = await supabase
         .from('orders')
         .insert(orderRow)
@@ -214,7 +249,9 @@ export default function N8NGenerate({ client }: { client: ClientPayload }) {
         .single();
       if (insertErr) throw insertErr;
 
-      // 5) Send ONLY the inserted order row to n8n
+      // console.log('[N8NGenerate] inserted.weekly:', inserted?.weekly);
+
+      // 6) Send ONLY the inserted order row to n8n
       if (n8nUrl) {
         await fetch(n8nUrl, {
           method: 'POST',
