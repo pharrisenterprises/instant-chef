@@ -196,14 +196,28 @@ function normalizeMenu(m: any, defaultPortions: number): MenuItem {
 
 /* -------------------- Component -------------------- */
 export default function DashboardPage() {
-  // Auth guard + email
+  // Auth + router
   const supabase = createClient();
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  // after: const supabase = createClient();
-// and after the auth guard where you set userEmail
+  // --- state FIRST ---
+  const [profile, setProfile] = useState<Profile>(defaultProfile);
+  const [weekly, setWeekly] = useState<Weekly>(defaultWeekly);
+  const [menus, setMenus] = useState<MenuItem[]>([]);
+  const [cartMeal, setCartMeal] = useState<CartLine[]>([]);
+  const [cartExtra, setCartExtra] = useState<CartLine[]>([]);
+  const [pantry, setPantry] = useState<PantryItem[]>(defaultPantry);
+  const [bar, setBar] = useState<BarItem[]>(defaultBar);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [beverageRecipe, setBeverageRecipe] = useState<BeverageRecipe | null>(null);
+  const [editingPantryItem, setEditingPantryItem] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; qty: string; measure: Measure | null }>({ name: '', qty: '', measure: 'oz' });
+  const [onHandPreview, setOnHandPreview] = useState<string | undefined>(undefined);
+  const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
+  const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
 
+  // --- THEN the effect that depends on profile ---
   useEffect(() => {
     let unsubscribed = false;
     let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -211,10 +225,11 @@ export default function DashboardPage() {
 
     (async () => {
       const { data: auth } = await supabase.auth.getUser();
+      setUserEmail(auth?.user?.email ?? null);
       const uid = auth?.user?.id ?? null;
       if (!uid) return;
 
-      // 1) load latest order
+      // 1) latest order
       const { data: latest, error } = await supabase
         .from('orders')
         .select('id, user_id, menus, created_at')
@@ -226,27 +241,27 @@ export default function DashboardPage() {
       if (!unsubscribed && !error && latest) {
         latestOrderId = latest.id;
         if (Array.isArray(latest.menus)) {
-          setMenus((latest.menus as any[]).map(x => normalizeMenu(x, (profile.portionDefault ?? defaultProfile.portionDefault))));
+          setMenus((latest.menus as any[]).map(x =>
+            normalizeMenu(x, profile.portionDefault ?? defaultProfile.portionDefault)
+          ));
         }
       }
 
-      // 2) subscribe for live updates to orders.menus
+      // 2) realtime
       channel = supabase
         .channel('orders-updates')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'orders' },
-          (payload: any) => {
-            const row = payload?.new ?? payload?.old ?? null;
-            if (!row) return;
-            if (!latestOrderId) latestOrderId = row.id;
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload: any) => {
+          const row = payload?.new ?? payload?.old ?? null;
+          if (!row) return;
+          if (!latestOrderId) latestOrderId = row.id;
 
-            const isLatest = row.id === latestOrderId;
-            if (isLatest && Array.isArray(row.menus)) {
-              setMenus((row.menus as any[]).map(x => normalizeMenu(x, (profile.portionDefault ?? defaultProfile.portionDefault))));
-            }
+          const isLatest = row.id === latestOrderId;
+          if (isLatest && Array.isArray(row.menus)) {
+            setMenus((row.menus as any[]).map(x =>
+              normalizeMenu(x, profile.portionDefault ?? defaultProfile.portionDefault)
+            ));
           }
-        )
+        })
         .subscribe();
     })();
 
@@ -254,7 +269,8 @@ export default function DashboardPage() {
       unsubscribed = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [supabase, profile.portionDefault]); 
+  }, [supabase, profile.portionDefault]); // setState fns don’t need to be in deps
+}
 
 
   async function signOut() {
