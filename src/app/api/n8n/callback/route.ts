@@ -32,6 +32,10 @@ type Menu = {
   approved?: boolean
   ingredients?: Array<{ name: string; qty: number; measure: string }>
   steps?: string[]
+  // optional extras if you want to surface later
+  cook_time_min?: number
+  nutrition?: { calories?: number; protein_g?: number; carbs_g?: number; fat_g?: number }
+  cost_per_serving?: number | null
 }
 
 function parseIngredients(line?: string) {
@@ -39,30 +43,43 @@ function parseIngredients(line?: string) {
   if (!line) return []
   return line.split('|').map(part => {
     const p = part.trim()
-    // e.g. "chicken thighs: 225 g"
     const [nameRaw, rest] = p.split(':').map(s => s.trim())
     const m = rest?.match(/^([\d.]+)\s*(\w+)$/) // qty + measure
     const qty = m ? Number(m[1]) : 0
     const measure = m ? m[2] : ''
-    return { name: nameRaw, qty: isFinite(qty) ? qty : 0, measure }
+    return { name: nameRaw, qty: Number.isFinite(qty) ? qty : 0, measure }
   })
+}
+
+function toSteps(from?: string) {
+  if (!from) return undefined
+  // support either "•" bullets or " || " separators just in case
+  const raw = from.includes('•') ? from.split('•') : from.split('||')
+  return raw.map(s => s.trim()).filter(Boolean)
 }
 
 function mapResultsToMenus(rows: ResultsRow[], defaultPortions = 4): Menu[] {
   return rows.map((r, idx) => {
     const hero =
-      r.menu_card_url?.trim() ||
-      r.hero_image_url?.trim() ||
-      '' // can be filled/uploaded if data URL
+      (r.menu_card_url?.trim() || r.hero_image_url?.trim() || '') // Cloudinary URL if present
+    const id = `menu-${(r.menu_label || String.fromCharCode(65 + idx)).trim()}`
     return {
-      id: `menu-${(r.menu_label || String.fromCharCode(65 + idx)).trim()}`, // A/B/C → menu-A…
+      id,
       title: r.menu_title,
       description: r.menu_description,
-      hero,
+      hero, // can be a https URL; if data-URL, we upload below
       portions: defaultPortions,
       approved: false,
       ingredients: parseIngredients(r.ingredients_per_serving),
-      steps: r.sides_steps ? r.sides_steps.split('•').map(s => s.trim()).filter(Boolean) : undefined,
+      steps: toSteps(r.sides_steps),
+      cook_time_min: r.cook_time_min,
+      nutrition: {
+        calories: r.kcal,
+        protein_g: r.protein_g,
+        carbs_g: r.carbs_g,
+        fat_g: r.fat_g,
+      },
+      cost_per_serving: r.est_cost_linear_per_serv ?? null,
     }
   })
 }
@@ -132,11 +149,10 @@ export async function POST(req: NextRequest) {
 
   const count = Array.isArray(data) ? data.length : 0
   if (count === 0) {
-    // Helpful message so you can fix the ID flow quickly
     return new Response(JSON.stringify({
       ok: true,
       count: 0,
-      note: 'No orders row matched orderId. Ensure the orderId in this webhook matches an existing orders.id for the signed-in user.',
+      note: 'No orders row matched orderId. Ensure orderId matches an existing orders.id.',
     }), { status: 200 })
   }
 
