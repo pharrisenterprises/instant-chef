@@ -470,7 +470,11 @@ export default function DashboardPage() {
     },
   };
 
-  const bgStyle = { backgroundImage: 'url(/hero.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' } as const;
+   const bgStyle = {
+    backgroundImage: 'url(/hero.jpg)',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  } as const;
 
   return (
     <div className="min-h-screen" style={bgStyle}>
