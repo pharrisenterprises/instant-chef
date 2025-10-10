@@ -180,6 +180,20 @@ function generateBeverageRecipe(bar: BarItem[], type: 'cocktail' | 'mocktail'): 
   return { id: uid(), name, type, ingredients: selected, instructions: steps, imageUrl: img };
 }
 
+function normalizeMenu(m: any, defaultPortions: number): MenuItem {
+  return {
+    id: m?.id ?? uid(),
+    title: m?.title ?? 'Untitled',
+    description: m?.description ?? '',
+    hero: typeof m?.hero === 'string' && m.hero ? m.hero : '/hero.jpg',
+    ingredients: Array.isArray(m?.ingredients) ? m.ingredients : [],
+    portions: Number.isFinite(+m?.portions) ? +m.portions : defaultPortions,
+    approved: Boolean(m?.approved),
+    feedback: typeof m?.feedback === 'string' ? m.feedback : undefined,
+  };
+}
+
+
 /* -------------------- Component -------------------- */
 export default function DashboardPage() {
   // Auth guard + email
@@ -212,7 +226,7 @@ export default function DashboardPage() {
       if (!unsubscribed && !error && latest) {
         latestOrderId = latest.id;
         if (Array.isArray(latest.menus)) {
-          setMenus(latest.menus as typeof menus);
+          setMenus((latest.menus as any[]).map(x => normalizeMenu(x, (profile.portionDefault ?? defaultProfile.portionDefault))));
         }
       }
 
@@ -229,7 +243,7 @@ export default function DashboardPage() {
 
             const isLatest = row.id === latestOrderId;
             if (isLatest && Array.isArray(row.menus)) {
-              setMenus(row.menus);
+              setMenus((row.menus as any[]).map(x => normalizeMenu(x, (profile.portionDefault ?? defaultProfile.portionDefault))));
             }
           }
         )
@@ -240,7 +254,7 @@ export default function DashboardPage() {
       unsubscribed = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [supabase, setMenus]);
+  }, [supabase, profile.portionDefault]); 
 
 
   async function signOut() {
@@ -276,7 +290,7 @@ export default function DashboardPage() {
     const ba = load<BarItem[]>(LS.BAR, defaultBar);
     setProfile(p);
     setWeekly(w);
-    setMenus(m);
+    setMenus((m as any[]).map(x => normalizeMenu(x, (p.portionDefault ?? defaultProfile.portionDefault))));
     setCartMeal(cm);
     setCartExtra(ce);
     setPantry(pa.length ? pa : defaultPantry);
@@ -563,14 +577,11 @@ export default function DashboardPage() {
                 <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.extras} onChange={(e) => setWeekly(w => ({ ...w, extras: e.target.value }))} />
               </div>
 
-              <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-end">
-                <button className="px-5 py-2 rounded bg-green-600 text-white" onClick={generateMenus}>
-                  Generate Menu (Sample)
-                </button>
-                <div>
-                  <N8NGenerate client={client} />
-                </div>
+            <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-end">
+              <div>
+                <N8NGenerate client={client} />
               </div>
+            </div>
             </div>
 
             <div className="bg-white rounded-2xl shadow p-6">
