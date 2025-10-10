@@ -1,6 +1,4 @@
-'use client'
-
-// ✅ Route Segment Config (numbers/strings, NOT imported functions)
+// DO NOT put "use client" here
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
