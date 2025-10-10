@@ -1,9 +1,9 @@
 // src/app/api/signout/route.ts
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServer } from '@/lib/supabase/server' // <-- server helper
 
 export async function POST(request: Request) {
-  const supabase = createClient()
+  const supabase = createServer()
   await supabase.auth.signOut()
 
   const url = new URL('/', request.url)
