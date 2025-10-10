@@ -193,7 +193,6 @@ function normalizeMenu(m: any, defaultPortions: number): MenuItem {
   };
 }
 
-
 /* -------------------- Component -------------------- */
 export default function DashboardPage() {
   // Auth + router
@@ -217,7 +216,7 @@ export default function DashboardPage() {
   const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
   const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
 
-  // --- THEN the effect that depends on profile ---
+  // --- Supabase + menus sync ---
   useEffect(() => {
     let unsubscribed = false;
     let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -269,9 +268,7 @@ export default function DashboardPage() {
       unsubscribed = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [supabase, profile.portionDefault]); // setState fns don’t need to be in deps
-}
-
+  }, [supabase, profile.portionDefault]);
 
   async function signOut() {
     try { await supabase.auth.signOut(); } catch {}
@@ -279,23 +276,7 @@ export default function DashboardPage() {
     router.replace('/');
   }
 
-  // State
-  const [profile, setProfile] = useState<Profile>(defaultProfile);
-  const [weekly, setWeekly] = useState<Weekly>(defaultWeekly);
-  const [menus, setMenus] = useState<MenuItem[]>([]);
-  const [cartMeal, setCartMeal] = useState<CartLine[]>([]);
-  const [cartExtra, setCartExtra] = useState<CartLine[]>([]);
-  const [pantry, setPantry] = useState<PantryItem[]>(defaultPantry);
-  const [bar, setBar] = useState<BarItem[]>(defaultBar);
-  const [accountOpen, setAccountOpen] = useState(false);
-  const [beverageRecipe, setBeverageRecipe] = useState<BeverageRecipe | null>(null);
-  const [editingPantryItem, setEditingPantryItem] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<{ name: string; qty: string; measure: Measure | null }>({ name: '', qty: '', measure: 'oz' });
-  const [onHandPreview, setOnHandPreview] = useState<string | undefined>(undefined);
-  const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
-  const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
-
-  // Hydrate existing app state
+  // Hydrate existing app state from localStorage
   useEffect(() => {
     const p = load<Profile>(LS.PROFILE, defaultProfile);
     const w = load<Weekly>(LS.WEEKLY, defaultWeekly);
@@ -333,11 +314,13 @@ export default function DashboardPage() {
   useEffect(() => save(LS.PANTRY, pantry), [pantry]);
   useEffect(() => save(LS.BAR, bar), [bar]);
 
+  // Plan badge
   const [plan, setPlan] = useState<string | null>(null);
   useEffect(() => {
     setPlan(typeof window !== 'undefined' ? localStorage.getItem(LS.PLAN) : null);
   }, []);
 
+  // Totals
   const totalMeal = useMemo(() => cartMeal.reduce((a, c) => a + c.estPrice, 0), [cartMeal]);
   const totalExtra = useMemo(() => cartExtra.reduce((a, c) => a + c.estPrice, 0), [cartExtra]);
   const grandTotal = useMemo(() => +(totalMeal + totalExtra).toFixed(2), [totalMeal, totalExtra]);
@@ -346,7 +329,7 @@ export default function DashboardPage() {
     Object.values(LS).forEach(k => localStorage.removeItem(k));
     window.location.href = '/';
   }
-  
+
   function approveMenu(menu: MenuItem) {
     const scaled = scaleIngredients(menu.ingredients, menu.portions);
     const newLines: CartLine[] = scaled.map(ing => ({
@@ -470,7 +453,7 @@ export default function DashboardPage() {
     },
   };
 
-   const bgStyle = {
+  const bgStyle = {
     backgroundImage: 'url(/hero.jpg)',
     backgroundSize: 'cover',
     backgroundPosition: 'center',
@@ -597,11 +580,11 @@ export default function DashboardPage() {
                 <input className="w-full border rounded px-3 py-2 mt-1" value={weekly.extras} onChange={(e) => setWeekly(w => ({ ...w, extras: e.target.value }))} />
               </div>
 
-            <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-end">
-              <div>
-                <N8NGenerate client={client} />
+              <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-end">
+                <div>
+                  <N8NGenerate client={client} />
+                </div>
               </div>
-            </div>
             </div>
 
             <div className="bg-white rounded-2xl shadow p-6">
