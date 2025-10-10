@@ -105,49 +105,7 @@ const toNumber = (v: any, fallback = 0) => (Number.isFinite(+v) ? +v : fallback)
 
 const defaultProfile: Profile = { portionDefault: 4, store: 'Kroger' };
 const defaultWeekly: Weekly = { dinners: 3, budgetType: 'none', budgetValue: undefined, onHandText: '', onHandImageDataUrl: undefined, mood: '', extras: '' };
-/*
-const SAMPLE_MENUS: Omit<MenuItem, 'portions' | 'approved'>[] = [
-  {
-    id: 'm1',
-    title: 'Charred Lemon Herb Chicken with Roasted Veg',
-    description: 'Crispy-skinned chicken with bright lemon, parsley, and garlic over seasonal veggies.',
-    hero: '/hero.jpg',
-    ingredients: [
-      { name: 'Chicken thighs, boneless', qty: 1, measure: 'lb', estPrice: 4.5 },
-      { name: 'Lemon', qty: 1, measure: 'count', estPrice: 0.79 },
-      { name: 'Garlic', qty: 3, measure: 'count', estPrice: 0.15 },
-      { name: 'Parsley', qty: 0.5, measure: 'oz', estPrice: 2.0 },
-      { name: 'Mixed vegetables', qty: 16, measure: 'oz', estPrice: 3.5 },
-    ],
-  },
-  {
-    id: 'm2',
-    title: 'Creamy Tuscan Pasta',
-    description: 'Silky cream sauce, sun-dried tomatoes, spinach, and parmesan—weeknight hero.',
-    hero: '/hero.jpg',
-    ingredients: [
-      { name: 'Pasta', qty: 8, measure: 'oz', estPrice: 1.5 },
-      { name: 'Heavy cream', qty: 8, measure: 'oz', estPrice: 2.0 },
-      { name: 'Sun-dried tomatoes', qty: 4, measure: 'oz', estPrice: 3.2 },
-      { name: 'Spinach', qty: 4, measure: 'oz', estPrice: 1.5 },
-      { name: 'Parmesan', qty: 3, measure: 'oz', estPrice: 2.8 },
-    ],
-  },
-  {
-    id: 'm3',
-    title: 'Soy-Ginger Salmon with Rice & Greens',
-    description: 'Oven-roasted salmon with glossy soy-ginger glaze over fluffy rice and greens.',
-    hero: '/hero.jpg',
-    ingredients: [
-      { name: 'Salmon fillet', qty: 0.75, measure: 'lb', estPrice: 9.0 },
-      { name: 'Soy sauce', qty: 2, measure: 'oz', estPrice: 0.3 },
-      { name: 'Fresh ginger', qty: 1, measure: 'oz', estPrice: 0.8 },
-      { name: 'Rice', qty: 8, measure: 'oz', estPrice: 1.2 },
-      { name: 'Green beans', qty: 8, measure: 'oz', estPrice: 2.0 },
-    ],
-  },
-];
-*/
+
 const defaultPantry: PantryItem[] = [
   { id: uid(), name: 'Salt', qty: null, measure: null, staple: true, active: true, updatedAt: now(), type: 'spice' },
   { id: uid(), name: 'Pepper', qty: null, measure: null, staple: true, active: true, updatedAt: now(), type: 'spice' },
@@ -358,15 +316,7 @@ export default function DashboardPage() {
     Object.values(LS).forEach(k => localStorage.removeItem(k));
     window.location.href = '/';
   }
-  function generateMenus() {
-    const count = Math.min(weekly.dinners || 3, SAMPLE_MENUS.length);
-    const generated: MenuItem[] = SAMPLE_MENUS.slice(0, count).map(base => ({
-      ...base,
-      portions: profile.portionDefault,
-      approved: false,
-    }));
-    setMenus(generated);
-  }
+  
   function approveMenu(menu: MenuItem) {
     const scaled = scaleIngredients(menu.ingredients, menu.portions);
     const newLines: CartLine[] = scaled.map(ing => ({
