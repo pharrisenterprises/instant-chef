@@ -100,7 +100,6 @@ export default function N8NGenerate({
   const [busy, setBusy] = useState(false);
   const supabase = createClient();
 
-  // helpers
   const strToArr = (s?: string | null) => {
     if (!s || s.trim().toLowerCase() === 'no') return [];
     return s.split(',').map((x) => x.trim()).filter(Boolean);
@@ -125,13 +124,11 @@ export default function N8NGenerate({
     try {
       setBusy(true);
 
-      // 1) who’s logged in?
       const { data: auth, error: authErr } = await supabase.auth.getUser();
       if (authErr) throw authErr;
       const user = auth.user;
       if (!user) throw new Error('Please sign in again.');
 
-      // 2) get the profile row
       const { data: profile, error: pErr } = await supabase
         .from('profiles')
         .select('*')
@@ -139,7 +136,6 @@ export default function N8NGenerate({
         .single();
       if (pErr) throw pErr;
 
-      // 3) map profile -> payload parts
       const equipment: string[] = normalizeArray((profile as any)?.equipment);
 
       const basicInformation: BasicInformation = {
@@ -189,7 +185,6 @@ export default function N8NGenerate({
         preferNationalBrands: natBrands((profile as any)?.brand_preference),
       };
 
-      // 4) weekly/extra
       const w = weekly ?? {};
       const extra = {
         weeklyMood: (w.mood ?? client.extra?.weeklyMood ?? '').toString(),
@@ -211,7 +206,6 @@ export default function N8NGenerate({
         extra,
       };
 
-      // 5) create order row
       const correlationId = makeId();
       const siteUrl =
         process.env.NEXT_PUBLIC_SITE_URL ||
@@ -241,7 +235,6 @@ export default function N8NGenerate({
         .single();
       if (insertErr) throw insertErr;
 
-      // 6) Send ONLY the inserted order row to n8n
       if (n8nUrl) {
         await fetch(n8nUrl, {
           method: 'POST',
@@ -249,7 +242,6 @@ export default function N8NGenerate({
           body: JSON.stringify({ order: inserted }),
         });
       }
-      // No alert() and no global modal here.
     } catch (err: any) {
       console.error(err);
       alert(`Failed: ${err?.message ?? String(err)}`);
