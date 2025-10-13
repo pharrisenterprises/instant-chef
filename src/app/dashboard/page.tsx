@@ -215,6 +215,7 @@ export default function DashboardPage() {
   const [onHandPreview, setOnHandPreview] = useState<string | undefined>(undefined);
   const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
   const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
+  const [currentOrder, setCurrentOrder] = useState<{ id: string; correlation_id: string } | null>(null);
   // 🔔 watch the specific order we just created
   const [watchOrderId, setWatchOrderId] = useState<string | null>(null);
   const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -255,7 +256,7 @@ export default function DashboardPage() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload: any) => {
           const row = payload?.new ?? payload?.old ?? null;
           if (!row) return;
-          
+
           // If a brand-new order for this user is inserted, start treating it as the latest
           if (payload.eventType === 'INSERT') {
             latestOrderId = row.id;
@@ -281,64 +282,64 @@ export default function DashboardPage() {
 
 
   // ✅ Focused subscription + polling for the order created by N8NGenerate
-useEffect(() => {
-  if (!watchOrderId) return;
+  useEffect(() => {
+    if (!watchOrderId) return;
 
-  const channel = supabase
-    .channel(`order_${watchOrderId}`)
-    .on(
-      'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${watchOrderId}` },
-      (payload) => {
-        const next = payload.new as any;
-        if (Array.isArray(next?.menus)) {
-          setMenus(next.menus.map((m: any) =>
-            normalizeMenu(m, profile.portionDefault ?? defaultProfile.portionDefault)
-          ));
+    const channel = supabase
+      .channel(`order_${watchOrderId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${watchOrderId}` },
+        (payload) => {
+          const next = payload.new as any;
+          if (Array.isArray(next?.menus)) {
+            setMenus(next.menus.map((m: any) =>
+              normalizeMenu(m, profile.portionDefault ?? defaultProfile.portionDefault)
+            ));
+          }
+        }
+      )
+      .subscribe();
+
+    // Polling fallback (~2 min, every 5s)
+    let ticks = 0;
+    pollHandleRef.current = setInterval(async () => {
+      ticks++;
+      const { data, error } = await supabase
+        .from('orders')
+        .select('menus')
+        .eq('id', watchOrderId)
+        .single();
+
+      if (!error && Array.isArray(data?.menus)) {
+        setMenus(data.menus.map((m: any) =>
+          normalizeMenu(m, profile.portionDefault ?? defaultProfile.portionDefault)
+        ));
+        if (pollHandleRef.current) {
+          clearInterval(pollHandleRef.current);
+          pollHandleRef.current = null;
         }
       }
-    )
-    .subscribe();
+      if (ticks >= 24 && pollHandleRef.current) { // ~2 minutes
+        clearInterval(pollHandleRef.current);
+        pollHandleRef.current = null;
+      }
+    }, 5000);
 
-  // Polling fallback (~2 min, every 5s)
-  let ticks = 0;
-  pollHandleRef.current = setInterval(async () => {
-    ticks++;
-    const { data, error } = await supabase
-      .from('orders')
-      .select('menus')
-      .eq('id', watchOrderId)
-      .single();
-
-    if (!error && Array.isArray(data?.menus)) {
-      setMenus(data.menus.map((m: any) =>
-        normalizeMenu(m, profile.portionDefault ?? defaultProfile.portionDefault)
-      ));
+    return () => {
+      supabase.removeChannel(channel);
       if (pollHandleRef.current) {
         clearInterval(pollHandleRef.current);
         pollHandleRef.current = null;
       }
-    }
-    if (ticks >= 24 && pollHandleRef.current) { // ~2 minutes
-      clearInterval(pollHandleRef.current);
-      pollHandleRef.current = null;
-    }
-  }, 5000);
+    };
+  }, [watchOrderId, supabase, profile.portionDefault]);
 
-  return () => {
-    supabase.removeChannel(channel);
-    if (pollHandleRef.current) {
-      clearInterval(pollHandleRef.current);
-      pollHandleRef.current = null;
+    async function signOut() {
+      try { await supabase.auth.signOut(); } catch {}
+      Object.values(LS).forEach(k => localStorage.removeItem(k));
+      router.replace('/');
     }
-  };
-}, [watchOrderId, supabase, profile.portionDefault]);
-
-  async function signOut() {
-    try { await supabase.auth.signOut(); } catch {}
-    Object.values(LS).forEach(k => localStorage.removeItem(k));
-    router.replace('/');
-  }
 
   // Hydrate existing app state from localStorage
   useEffect(() => {
@@ -368,6 +369,39 @@ useEffect(() => {
     const s = load<ShoppingPreferences | null>(LS.IC_SHOP, null);
     if (s?.preferredGroceryStore) setProfile(p => ({ ...p, store: s.preferredGroceryStore || p.store }));
   }, []);
+
+  // Save/Upsert menus into public.menus when they arrive for the current order
+  useEffect(() => {
+    if (!currentOrder || menus.length === 0) return;
+
+    (async () => {
+      try {
+        // Map your UI menu shape to table columns
+        const rows = menus.map((m) => ({
+          id: m.id,                                   // must be unique; your normalizeMenu provides one
+          order_id: currentOrder.id,
+          correlation_id: currentOrder.correlation_id,
+          title: m.title,
+          description: m.description,
+          // If you later add columns, include them here:
+          // hero: m.hero,
+          // portions: m.portions,
+          // approved: m.approved,
+          // feedback: m.feedback,
+          // ingredients: m.ingredients,               // JSONB column recommended
+        }));
+
+        // Avoid duplicates: upsert on primary/unique constraint – here we use "id"
+        const { error } = await supabase
+          .from('menus')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (error) console.error('[menus upsert] error:', error);
+      } catch (e) {
+        console.error('[menus upsert] exception:', e);
+      }
+    })();
+  }, [menus, currentOrder, supabase]);
 
   // Persist
   useEffect(() => save(LS.PROFILE, profile), [profile]);
@@ -526,6 +560,7 @@ useEffect(() => {
   // Called when the order row is inserted by N8NGenerate
 function handleOrderSubmitted(order: { id: string; correlation_id: string }) {
   setWatchOrderId(order.id);
+  setCurrentOrder(order);  
 }
 
   return (
