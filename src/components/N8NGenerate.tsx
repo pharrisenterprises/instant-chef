@@ -169,9 +169,11 @@ function normalizeBudgetType(t?: string | null): 'per_week' | 'per_meal' | null 
 export default function N8NGenerate({
   client,
   weekly,
+  onSubmitted, // <-- NEW
 }: {
   client: ClientPayload;
   weekly?: WeeklyMinimal; // <-- must be passed from the parent (dashboard)
+  onSubmitted?: (order: { id: string; correlation_id: string }) => void; // <-- NEW
 }) {
   const [busy, setBusy] = useState(false);
   const [chefOpen, setChefOpen] = useState(false);
@@ -328,6 +330,11 @@ export default function N8NGenerate({
         .select('*')
         .single();
       if (insertErr) throw insertErr;
+
+      // 👇 NEW: notify parent so it can subscribe for live menu updates
+      if (inserted && onSubmitted) {
+        onSubmitted({ id: inserted.id, correlation_id: inserted.correlation_id });
+      }
 
       // 6) send to n8n
       if (n8nUrl) {

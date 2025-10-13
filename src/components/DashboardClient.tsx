@@ -30,6 +30,10 @@ export default function DashboardClient() {
   const latestOrderIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
 
+  // 🔔 NEW: watch a specific order (set by N8NGenerate -> onSubmitted)
+  const [watchOrderId, setWatchOrderId] = useState<string | null>(null);
+  const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Restore Pantry/Bar from localStorage
   useEffect(() => {
     setPantry(readLS<PantryItem[]>("ic_pantry", []));
@@ -44,7 +48,7 @@ export default function DashboardClient() {
     localStorage.setItem("ic_bar", JSON.stringify(bar));
   }, [bar]);
 
-  // Load latest order’s menus on mount and wire realtime updates
+  // Load latest order’s menus on mount and wire realtime updates (existing logic kept)
   useEffect(() => {
     let unsubscribed = false;
 
@@ -69,7 +73,7 @@ export default function DashboardClient() {
         if (Array.isArray(latest.menus)) setMenus(latest.menus as MenuItem[]);
       }
 
-      // Subscribe to realtime changes on orders
+      // Subscribe to realtime changes on orders (broad stream)
       const channel = supabase
         .channel("orders-updates")
         .on(
@@ -111,19 +115,87 @@ export default function DashboardClient() {
     return () => {
       // best-effort cleanup signal for async init()
       unsubscribed = true;
-      // cleanupPromise is awaited implicitly by above return of channel remover
       void cleanupPromise;
     };
   }, [supabase]);
 
+  /* ====================== NEW: “watch this order id” stream ====================== */
+
+  // Called by N8NGenerate (via WeeklyPlanner) after the order row is inserted
+  function handleOrderSubmitted(order: { id: string; correlation_id: string }) {
+    setWatchOrderId(order.id);
+  }
+
+  // Focused realtime subscription + polling fallback for the specific order we just created
+  useEffect(() => {
+    if (!watchOrderId) return;
+
+    // 1) Focused realtime channel (only this order row)
+    const channel = supabase
+      .channel(`order_${watchOrderId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${watchOrderId}`,
+        },
+        (payload) => {
+          const next = payload.new as any;
+          if (Array.isArray(next?.menus)) {
+            setMenus(next.menus as MenuItem[]);
+          }
+        }
+      )
+      .subscribe();
+
+    // 2) Polling fallback (~2 minutes, every 5s)
+    let ticks = 0;
+    pollHandleRef.current = setInterval(async () => {
+      ticks++;
+      const { data, error } = await supabase
+        .from("orders")
+        .select("menus")
+        .eq("id", watchOrderId)
+        .single();
+
+      if (!error && Array.isArray(data?.menus)) {
+        setMenus(data.menus as MenuItem[]);
+        if (pollHandleRef.current) {
+          clearInterval(pollHandleRef.current);
+          pollHandleRef.current = null;
+        }
+      }
+
+      if (ticks >= 24 && pollHandleRef.current) {
+        clearInterval(pollHandleRef.current);
+        pollHandleRef.current = null;
+      }
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (pollHandleRef.current) {
+        clearInterval(pollHandleRef.current);
+        pollHandleRef.current = null;
+      }
+    };
+  }, [watchOrderId, supabase]);
+
+  /* ============================================================================ */
+
   return (
     <div className="flex flex-col gap-8 p-6">
-      {/* Your planner still controls generating menus; the callback will update `orders.menus` and this page will live-refresh via Realtime. */}
+      {/* Your planner still controls generating menus; the callback will set `watchOrderId`
+          and this component will live-refresh when n8n writes menus back. */}
       <WeeklyPlanner
         menus={menus}
         setMenus={setMenus}
         approvedMenus={approvedMenus}
         setApprovedMenus={setApprovedMenus}
+        // 👇 NEW: forward to N8NGenerate (inside WeeklyPlanner)
+        onSubmitted={handleOrderSubmitted}
       />
 
       <MenuCards
