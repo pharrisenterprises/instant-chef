@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
@@ -215,6 +215,9 @@ export default function DashboardPage() {
   const [onHandPreview, setOnHandPreview] = useState<string | undefined>(undefined);
   const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
   const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
+  // 🔔 watch the specific order we just created
+  const [watchOrderId, setWatchOrderId] = useState<string | null>(null);
+  const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // --- Supabase + menus sync ---
   useEffect(() => {
@@ -269,6 +272,61 @@ export default function DashboardPage() {
       if (channel) supabase.removeChannel(channel);
     };
   }, [supabase, profile.portionDefault]);
+
+
+  // ✅ Focused subscription + polling for the order created by N8NGenerate
+useEffect(() => {
+  if (!watchOrderId) return;
+
+  const channel = supabase
+    .channel(`order_${watchOrderId}`)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${watchOrderId}` },
+      (payload) => {
+        const next = payload.new as any;
+        if (Array.isArray(next?.menus)) {
+          setMenus(next.menus.map((m: any) =>
+            normalizeMenu(m, profile.portionDefault ?? defaultProfile.portionDefault)
+          ));
+        }
+      }
+    )
+    .subscribe();
+
+  // Polling fallback (~2 min, every 5s)
+  let ticks = 0;
+  pollHandleRef.current = setInterval(async () => {
+    ticks++;
+    const { data, error } = await supabase
+      .from('orders')
+      .select('menus')
+      .eq('id', watchOrderId)
+      .single();
+
+    if (!error && Array.isArray(data?.menus)) {
+      setMenus(data.menus.map((m: any) =>
+        normalizeMenu(m, profile.portionDefault ?? defaultProfile.portionDefault)
+      ));
+      if (pollHandleRef.current) {
+        clearInterval(pollHandleRef.current);
+        pollHandleRef.current = null;
+      }
+    }
+    if (ticks >= 24 && pollHandleRef.current) { // ~2 minutes
+      clearInterval(pollHandleRef.current);
+      pollHandleRef.current = null;
+    }
+  }, 5000);
+
+  return () => {
+    supabase.removeChannel(channel);
+    if (pollHandleRef.current) {
+      clearInterval(pollHandleRef.current);
+      pollHandleRef.current = null;
+    }
+  };
+}, [watchOrderId, supabase, profile.portionDefault]);
 
   async function signOut() {
     try { await supabase.auth.signOut(); } catch {}
@@ -459,6 +517,11 @@ export default function DashboardPage() {
     backgroundPosition: 'center',
   } as const;
 
+  // Called when the order row is inserted by N8NGenerate
+function handleOrderSubmitted(order: { id: string; correlation_id: string }) {
+  setWatchOrderId(order.id);
+}
+
   return (
     <div className="min-h-screen" style={bgStyle}>
       <div className="min-h-screen bg-white/80 backdrop-blur-sm">
@@ -594,6 +657,7 @@ export default function DashboardPage() {
                       budgetType: weekly.budgetType,          // "perWeek" | "perMeal" | "none"
                       budgetValue: weekly.budgetValue ?? null // number | null
                     }}
+                    onSubmitted={handleOrderSubmitted}
                   />
                 </div>
               </div>
