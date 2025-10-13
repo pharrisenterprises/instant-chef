@@ -1,53 +1,68 @@
 "use client"
 
-import { useState, useEffect } from 'react'
-import type { Profile, Weekly } from '@/lib/types'
+import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
+import type { Profile, Weekly } from "@/lib/types"
 
-/** Full-screen chef popup centered in the viewport */
-function ChefCookingModal({
+/** Full-screen chef popup via React Portal (renders to document.body) */
+function ChefCookingPortal({
   open,
   onClose,
-  title = 'The chef is cooking your menus…',
-  message = 'We’re mixing your preferences, pantry, and budget to build the perfect weekly plan.',
-  subMessage = 'This can take a minute or two. You can continue browsing while we cook!',
-  autoHideMs = 10000, // ← auto hide after 10s
+  autoHideMs = 10000,
+  title = "The chef is cooking your menus…",
+  message = "We’re mixing your preferences, pantry, and budget to build the perfect weekly plan.",
+  subMessage = "This can take a minute or two. You can continue browsing while we cook!",
 }: {
   open: boolean
   onClose: () => void
+  autoHideMs?: number
   title?: string
   message?: string
   subMessage?: string
-  autoHideMs?: number
 }) {
-  // Auto hide timer
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+    return () => setMounted(false)
+  }, [])
+
+  // Auto-hide
   useEffect(() => {
     if (!open) return
     const t = setTimeout(onClose, autoHideMs)
     return () => clearTimeout(t)
   }, [open, autoHideMs, onClose])
 
-  if (!open) return null
+  if (!mounted || !open) return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center" role="dialog" aria-modal="true">
       {/* dim background */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+
       {/* card */}
       <div className="relative mx-4 w-full max-w-md rounded-2xl bg-white shadow-2xl">
         <div className="p-6">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100">
+            {/* Chef hat icon */}
             <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
               <path d="M20 40h24v10a2 2 0 0 1-2 2H22a2 2 0 0 1-2-2V40z" fill="#e5e7eb" />
               <path d="M16 28h32v10H16z" fill="#111827" />
               <path d="M32 8c-5.3 0-9.6 3.7-10.7 8.6C18.3 17 16 19.6 16 22.8 16 26.8 19.2 30 23.2 30h17.6c4 0 7.2-3.2 7.2-7.2 0-3.2-2.3-5.8-5.3-6.2C41.6 11.7 37.3 8 32 8z" fill="#f3f4f6" />
             </svg>
           </div>
+
           <h3 className="text-center text-lg font-semibold text-neutral-900">{title}</h3>
           <p className="mt-2 text-center text-sm text-neutral-700">{message}</p>
-          {subMessage ? <p className="mt-1 text-center text-xs text-neutral-500">{subMessage}</p> : null}
+          {subMessage ? (
+            <p className="mt-1 text-center text-xs text-neutral-500">{subMessage}</p>
+          ) : null}
+
           <div className="mt-5 h-1 w-full overflow-hidden rounded-full bg-neutral-200">
             <div className="animate-[progress_1.6s_ease-in-out_infinite] h-1 w-1/3 rounded-full bg-neutral-900" />
           </div>
+
           <div className="mt-6 flex justify-center">
             <button
               type="button"
@@ -59,6 +74,8 @@ function ChefCookingModal({
           </div>
         </div>
       </div>
+
+      {/* progress animation */}
       <style jsx>{`
         @keyframes progress {
           0% { transform: translateX(-100%); }
@@ -66,7 +83,8 @@ function ChefCookingModal({
           100% { transform: translateX(120%); }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -94,16 +112,16 @@ export default function WeeklyPlanner({
   const [chefOpen, setChefOpen] = useState(false)
 
   const onGenerateClick = () => {
-    // show popup immediately
+    // show popup immediately (centered on screen)
     setChefOpen(true)
-    // fire your existing flow (N8NGenerate etc.)
+    // fire your existing flow
     generateMenus()
   }
 
   return (
     <div className="bg-white rounded-2xl shadow p-6">
-      {/* Chef popup centered on viewport, auto-hides after 10s */}
-      <ChefCookingModal open={chefOpen} onClose={() => setChefOpen(false)} autoHideMs={10000} />
+      {/* Chef popup (portal to body). Auto-closes after 10s */}
+      <ChefCookingPortal open={chefOpen} onClose={() => setChefOpen(false)} autoHideMs={10000} />
 
       <h2 className="text-xl font-bold mb-4">Weekly Menu Planning</h2>
       <div className="grid md:grid-cols-3 gap-4">
@@ -130,7 +148,7 @@ export default function WeeklyPlanner({
       <div className="grid md:grid-cols-3 gap-4 mt-4">
         <div>
           <label className="block text-sm font-medium">Budget Type</label>
-          <select className="w-full border rounded px-3 py-2 mt-1" value={weekly.budgetType} onChange={(e) => setWeekly({ ...weekly, budgetType: e.target.value as Weekly['budgetType'] })}>
+          <select className="w-full border rounded px-3 py-2 mt-1" value={weekly.budgetType} onChange={(e) => setWeekly({ ...weekly, budgetType: e.target.value as Weekly["budgetType"] })}>
             <option value="none">No budget</option>
             <option value="perWeek">Per week ($)</option>
             <option value="perMeal">Per meal ($)</option>
@@ -138,7 +156,7 @@ export default function WeeklyPlanner({
         </div>
         <div>
           <label className="block text-sm font-medium">Budget Value</label>
-          <input type="number" className="w-full border rounded px-3 py-2 mt-1" value={weekly.budgetValue ?? ''} onChange={(e) => setWeekly({ ...weekly, budgetValue: e.target.value === '' ? undefined : Math.max(0, +e.target.value) })} placeholder="e.g., 150" />
+          <input type="number" className="w-full border rounded px-3 py-2 mt-1" value={weekly.budgetValue ?? ""} onChange={(e) => setWeekly({ ...weekly, budgetValue: e.target.value === "" ? undefined : Math.max(0, +e.target.value) })} placeholder="e.g., 150" />
         </div>
         <div className="flex items-end">
           <p className="text-xs text-gray-600">Specify weekly $ or per-meal $. Leave blank to skip.</p>
