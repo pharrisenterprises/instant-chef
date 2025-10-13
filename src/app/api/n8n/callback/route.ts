@@ -3,12 +3,18 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 type Ingredient = { name: string; qty?: number; measure?: string; estPrice?: number };
+type Nutrition = { calories?: number | null; est_cost_per_serving?: number | null };
+type Recipe = { cook_time_min?: number | null; steps?: string[] };
+type Side = { title?: string; ingredients?: Ingredient[]; steps?: string[] };
 type MenuItem = {
   id: string;
   title: string;
   description: string;
   hero: string;
   ingredients: Ingredient[];
+  nutrition?: Nutrition;   // ⬅️ NEW
+  recipe?: Recipe;         // ⬅️ NEW
+  sides?: Side[];  
   _source?: any;
 };
 

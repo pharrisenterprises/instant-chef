@@ -34,10 +34,18 @@ export default function DashboardClient() {
   const [watchOrderId, setWatchOrderId] = useState<string | null>(null);
   const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ✅ NEW: names the user marked as "on hand this week"
+  // (stored by the weekly planner; adjust key if your app uses a different one)
+  const [onHandNames, setOnHandNames] = useState<string[]>([]);
+
   // Restore Pantry/Bar from localStorage
   useEffect(() => {
     setPantry(readLS<PantryItem[]>("ic_pantry", []));
     setBar(readLS<BarItem[]>("ic_bar", []));
+    // try common keys for "on hand" (keep this flexible)
+    const fromPrimary = readLS<string[]>("ic_onhand_names", []);
+    const fromAlt = readLS<string[]>("ic_onhand", []);
+    setOnHandNames(fromPrimary.length ? fromPrimary : fromAlt);
   }, []);
 
   // Persist Pantry/Bar if they change
@@ -47,6 +55,29 @@ export default function DashboardClient() {
   useEffect(() => {
     localStorage.setItem("ic_bar", JSON.stringify(bar));
   }, [bar]);
+
+  // ✅ NEW: auto-filter cart so it only contains items to purchase
+  // (i.e., exclude anything already in Pantry or marked On-Hand)
+  useEffect(() => {
+    if (!cart?.length) return;
+
+    const norm = (s: string) => s?.trim().toLowerCase();
+    const pantrySet = new Set(
+      (pantry || []).map((p) => norm((p as any).name ?? ""))
+    );
+    const onHandSet = new Set((onHandNames || []).map(norm));
+
+    // cart lines are expected to have a `.name` (ingredient name)
+    const filtered = cart.filter((line: any) => {
+      const n = norm(line?.name ?? "");
+      if (!n) return true; // keep if unnamed (defensive)
+      return !pantrySet.has(n) && !onHandSet.has(n);
+    });
+
+    if (filtered.length !== cart.length) {
+      setCart(filtered);
+    }
+  }, [cart, pantry, onHandNames]);
 
   // Load latest order’s menus on mount and wire realtime updates (existing logic kept)
   useEffect(() => {
@@ -212,5 +243,5 @@ export default function DashboardClient() {
 
       <BarSection bar={bar} setBar={setBar} />
     </div>
-  );
+  ); 
 }

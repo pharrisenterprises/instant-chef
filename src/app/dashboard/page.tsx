@@ -206,6 +206,11 @@ export default function DashboardPage() {
   const [menus, setMenus] = useState<MenuItem[]>([]);
   const [cartMeal, setCartMeal] = useState<CartLine[]>([]);
   const [cartExtra, setCartExtra] = useState<CartLine[]>([]);
+  // helper: fully reset cart lines
+  function resetCart() {
+    setCartMeal([]);
+    setCartExtra([]);
+  }
   const [pantry, setPantry] = useState<PantryItem[]>(defaultPantry);
   const [bar, setBar] = useState<BarItem[]>(defaultBar);
   const [accountOpen, setAccountOpen] = useState(false);
