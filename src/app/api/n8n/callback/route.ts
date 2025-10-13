@@ -109,20 +109,73 @@ export async function POST(req: Request) {
     // Normalize every menu row into the UI’s expected shape
     const normalized: MenuItem[] = menus.map(normalizeOne);
 
-    // Insert one order row with normalized menus
-    const { data, error } = await supabaseAdmin
+    // Try to insert the order; if a duplicate correlation_id exists, update that row instead.
+    let orderId: string | null = null;
+
+    const { data: inserted, error: insertErr } = await supabaseAdmin
       .from('orders')
       .insert([{
         user_id,
         correlation_id: correlation_id ?? null,
         menus: normalized,
+        status: 'ready',
       }])
       .select('id')
       .single();
 
-    if (error) throw error;
+    if (insertErr) {
+      // If duplicate (23505) or similar unique error on correlation_id, update instead
+      const dup = typeof insertErr?.code === 'string' && insertErr.code === '23505';
+      const looksDuplicate = dup || /duplicate key|unique/i.test(insertErr?.message ?? '');
 
-    return NextResponse.json({ ok: true, order_id: data.id });
+      if (!looksDuplicate || !correlation_id) {
+        throw insertErr;
+      }
+
+      const { data: updated, error: updateErr } = await supabaseAdmin
+        .from('orders')
+        .update({
+          menus: normalized,
+          status: 'ready',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('correlation_id', correlation_id)
+        .select('id')
+        .single();
+
+      if (updateErr || !updated) throw updateErr ?? new Error('Failed to update existing order');
+      orderId = updated.id;
+    } else {
+      orderId = inserted?.id ?? null;
+    }
+
+    if (!orderId) {
+      return NextResponse.json({ error: 'No order id' }, { status: 500 });
+    }
+
+    // ---- Persist each menu in public.menus (idempotent) ----
+    // Make sure your `menus` table has columns used below or adjust the mapping.
+    // Recommended: add a unique index on menu_key.
+    const rows = normalized.map((m, idx) => ({
+      order_id: orderId,
+      user_id,
+      title: m.title,
+      description: m.description,
+      hero: m.hero || null,
+      portions: 2,
+      approved: false,
+      feedback: null,
+      ingredients: m.ingredients ?? [],
+      menu_key: `${orderId}:${idx}`, // <-- unique, stable key per order/menu
+    }));
+
+    if (rows.length) {
+      await supabaseAdmin
+        .from('menus')
+        .upsert(rows, { onConflict: 'menu_key' });
+    }
+
+    return NextResponse.json({ ok: true, order_id: orderId, menus_count: rows.length });
   } catch (e: any) {
     console.error('callback error', e);
     return NextResponse.json({ error: e?.message ?? 'unknown' }, { status: 500 });
