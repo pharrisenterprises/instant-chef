@@ -196,7 +196,7 @@ function normalizeMenu(m: any, defaultPortions: number): MenuItem {
 /* -------------------- Component -------------------- */
 export default function DashboardPage() {
   // Auth + router
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
@@ -255,7 +255,13 @@ export default function DashboardPage() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload: any) => {
           const row = payload?.new ?? payload?.old ?? null;
           if (!row) return;
-          if (!latestOrderId) latestOrderId = row.id;
+          
+          // If a brand-new order for this user is inserted, start treating it as the latest
+          if (payload.eventType === 'INSERT') {
+            latestOrderId = row.id;
+          } else if (!latestOrderId) {
+            latestOrderId = row.id;
+          }
 
           const isLatest = row.id === latestOrderId;
           if (isLatest && Array.isArray(row.menus)) {
