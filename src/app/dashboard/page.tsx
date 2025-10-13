@@ -211,7 +211,7 @@ export default function DashboardPage() {
     setCartMeal([]);
     setCartExtra([]);
   }
-  const [pantry, setPantry] = useState<PantryItem[]>(defaultPantry);
+  const [pantry, setPantry] = useState<PantryItem[]>(defaultPantry);  
   const [bar, setBar] = useState<BarItem[]>(defaultBar);
   const [accountOpen, setAccountOpen] = useState(false);
   const [beverageRecipe, setBeverageRecipe] = useState<BeverageRecipe | null>(null);
