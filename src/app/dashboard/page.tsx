@@ -582,7 +582,19 @@ export default function DashboardPage() {
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-end">
                 <div>
-                  <N8NGenerate client={client} />
+                  <N8NGenerate
+                    client={client}
+                    weekly={{
+                      mood: weekly.mood,
+                      extras: weekly.extras,
+                      onHandText: weekly.onHandText,
+                      pantrySnapshot: pantry,                 // your pantry state
+                      barSnapshot: bar,                       // your bar state
+                      currentMenusCount: menus?.length ?? 0,  // how many menus currently
+                      budgetType: weekly.budgetType,          // "perWeek" | "perMeal" | "none"
+                      budgetValue: weekly.budgetValue ?? null // number | null
+                    }}
+                  />
                 </div>
               </div>
             </div>
