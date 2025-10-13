@@ -92,7 +92,7 @@ export default function WeeklyPlanner({
 
   const onGenerateClick = () => {
     setModalOpen(true)      // show chef modal immediately
-    generateMenus()         // fire your existing flow (N8N, etc.)
+    generateMenus()         // call your existing flow (N8NGenerate or parent handler)
   }
 
   return (

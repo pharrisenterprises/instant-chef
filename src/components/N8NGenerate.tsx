@@ -112,7 +112,7 @@ export type DietaryProfile = {
 export type ShoppingPreferences = {
   storesNearMe: string[];
   preferredGroceryStore: string;
-  preferOrganic: 'Yes' | 'No' | 'No preference';
+  preferOrganic: 'Yes' | 'No' | 'I dont care';
   preferNationalBrands: 'Yes' | 'No' | 'No preference';
 };
 
@@ -174,11 +174,11 @@ export default function N8NGenerate({
   const normalizeArray = (v: unknown): string[] =>
     Array.isArray(v) ? (v as string[]) : strToArr(typeof v === 'string' ? v : '');
 
-  const yesNo = (s?: string | null): 'Yes' | 'No' | 'No preference' => {
+  const yesNo = (s?: string | null): 'Yes' | 'No' | 'I dont care' => {
     const v = (s ?? '').toLowerCase();
     if (v === 'yes') return 'Yes';
     if (v === 'no') return 'No';
-    return 'No preference';
+    return 'I dont care';
   };
   const natBrands = (s?: string | null): 'Yes' | 'No' | 'No preference' => {
     const v = (s ?? '').toLowerCase();
@@ -190,17 +190,15 @@ export default function N8NGenerate({
   async function onGenerate() {
     try {
       setBusy(true);
-      setModalOpen(true); // ← open the chef modal immediately
+      setModalOpen(true); // open the chef modal immediately
 
-      // 1) auth
+      // 1) who’s logged in?
       const { data: auth, error: authErr } = await supabase.auth.getUser();
       if (authErr) throw authErr;
       const user = auth.user;
-      if (!user) {
-        throw new Error('Please sign in again.');
-      }
+      if (!user) throw new Error('Please sign in again.');
 
-      // 2) profile
+      // 2) get profile
       const { data: profile, error: pErr } = await supabase
         .from('profiles')
         .select('*')
@@ -280,7 +278,7 @@ export default function N8NGenerate({
         extra,
       };
 
-      // 5) create order
+      // 5) create order row
       const correlationId = makeId();
       const siteUrl =
         process.env.NEXT_PUBLIC_SITE_URL ||
@@ -310,7 +308,7 @@ export default function N8NGenerate({
         .single();
       if (insertErr) throw insertErr;
 
-      // 6) fire n8n
+      // 6) send to n8n
       if (n8nUrl) {
         await fetch(n8nUrl, {
           method: 'POST',
@@ -318,12 +316,9 @@ export default function N8NGenerate({
           body: JSON.stringify({ order: inserted }),
         });
       }
-
-      // no alert; the modal is already open
+      // modal stays open (user can hide it)
     } catch (err: any) {
       console.error(err);
-      // Keep modal open; optionally you could add an error state.
-      // If you prefer an error toast, swap the line below.
       alert(`Failed: ${err?.message ?? String(err)}`);
     } finally {
       setBusy(false);
