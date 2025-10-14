@@ -224,6 +224,30 @@ export default function DashboardPage() {
   // 🔔 watch the specific order we just created
   const [watchOrderId, setWatchOrderId] = useState<string | null>(null);
   const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastOrderWithMenusRef = useRef<string | null>(null);
+
+
+  // ✅ Add this effect near your other useEffects,
+  //    ideally just BEFORE the "Save/Upsert menus..." effect.
+  useEffect(() => {
+    if (!currentOrder) return;
+    if (menus.length === 0) return;
+
+    // only fire once per order id
+    if (lastOrderWithMenusRef.current !== currentOrder.id) {
+      // clear in-memory carts
+      setCartMeal([]);
+      setCartExtra([]);
+
+      // clear persisted carts too
+      try {
+        localStorage.removeItem(LS.CART_MEAL);
+        localStorage.removeItem(LS.CART_EXTRA);
+      } catch {}
+
+      lastOrderWithMenusRef.current = currentOrder.id;
+    }
+  }, [menus, currentOrder]);
 
   // --- Supabase + menus sync ---
   useEffect(() => {
@@ -284,6 +308,17 @@ export default function DashboardPage() {
       if (channel) supabase.removeChannel(channel);
     };
   }, [supabase, profile.portionDefault]);
+
+
+  // 🔓 When menus arrive (from any source), tell N8NGenerate to unlock.
+  // Also clear the localStorage pending key as an extra safety net.
+  useEffect(() => {
+    if (menus.length > 0) {
+      try { localStorage.removeItem('ic_pending_generation'); } catch {}
+      window.dispatchEvent(new Event('ic:menus-ready'));
+    }
+  }, [menus]);
+
 
 
   // ✅ Focused subscription + polling for the order created by N8NGenerate
