@@ -260,11 +260,7 @@ export default function DashboardPage() {
   const [menus, setMenus] = useState<MenuItem[]>([]);
   const [cartMeal, setCartMeal] = useState<CartLine[]>([]);
   const [cartExtra, setCartExtra] = useState<CartLine[]>([]);
-  // helper: fully reset cart lines
-  function resetCart() {
-    setCartMeal([]);
-    setCartExtra([]);
-  }
+  function resetCart() { setCartMeal([]); setCartExtra([]); }
   const [pantry, setPantry] = useState<PantryItem[]>(defaultPantry);  
   const [bar, setBar] = useState<BarItem[]>(defaultBar);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -274,34 +270,49 @@ export default function DashboardPage() {
   const [onHandPreview, setOnHandPreview] = useState<string | undefined>(undefined);
   const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
   const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
-  const [onHandItems, setOnHandItems] = useState<OnHandItem[]>([
-    { qty: '', name: '', notes: '' },
-  ]);
+
+  // ⭐ NEW: structured “on hand” rows (Qty / Item / Notes)
+  const [onHandItems, setOnHandItems] = useState<OnHandItem[]>([{ qty: '', name: '', notes: '' }]);
+
   const [currentOrder, setCurrentOrder] = useState<{ id: string; correlation_id: string } | null>(null);
-  // 🔔 watch the specific order we just created
   const [watchOrderId, setWatchOrderId] = useState<string | null>(null);
   const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastOrderWithMenusRef = useRef<string | null>(null);
 
-
-  // ✅ Add this effect near your other useEffects,
-  //    ideally just BEFORE the "Save/Upsert menus..." effect.
+  // 🔄 Keep weekly.onHandText in sync with the 3-box rows (backward compatible everywhere else)
   useEffect(() => {
-    if (!currentOrder) return;
-    if (menus.length === 0) return;
+    const text = onHandItems
+      .filter(i => i.name.trim())
+      .map(i => {
+        const left = [i.qty.trim(), i.name.trim()].filter(Boolean).join(' ');
+        return left + (i.notes.trim() ? ` (${i.notes.trim()})` : '');
+      })
+      .join(', ');
+    setWeekly(w => ({ ...w, onHandText: text }));
+  }, [onHandItems]);
 
-    // only fire once per order id
+  // (optional) If user had old text saved, bootstrap the first render rows from it once
+  useEffect(() => {
+    if (!weekly.onHandText || onHandItems.some(i => i.name || i.qty || i.notes)) return;
+    const seeded = weekly.onHandText.split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(s => {
+        // crude parse: split first token as qty if it starts with number
+        const m = s.match(/^(\d+(?:\.\d+)?)\s+(.*)$/);
+        if (m) return { qty: m[1], name: m[2], notes: '' };
+        return { qty: '', name: s, notes: '' };
+      });
+    if (seeded.length) setOnHandItems(seeded);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ Clear carts once per order id when menus show
+  useEffect(() => {
+    if (!currentOrder || menus.length === 0) return;
     if (lastOrderWithMenusRef.current !== currentOrder.id) {
-      // clear in-memory carts
-      setCartMeal([]);
-      setCartExtra([]);
-
-      // clear persisted carts too
-      try {
-        localStorage.removeItem(LS.CART_MEAL);
-        localStorage.removeItem(LS.CART_EXTRA);
-      } catch {}
-
+      setCartMeal([]); setCartExtra([]);
+      try { localStorage.removeItem(LS.CART_MEAL); localStorage.removeItem(LS.CART_EXTRA); } catch {}
       lastOrderWithMenusRef.current = currentOrder.id;
     }
   }, [menus, currentOrder]);
@@ -318,7 +329,6 @@ export default function DashboardPage() {
       const uid = auth?.user?.id ?? null;
       if (!uid) return;
 
-      // 1) latest order
       const { data: latest, error } = await supabase
         .from('orders')
         .select('id, user_id, menus, created_at')
@@ -331,44 +341,33 @@ export default function DashboardPage() {
         latestOrderId = latest.id;
         if (Array.isArray(latest.menus)) {
           setMenus((latest.menus as any[]).map(x =>
-            normalizeMenu(x, profile.portionDefault ?? defaultProfile.portionDefault)
+            normalizeMenu(x, profile.portionDefault)
           ));
         }
       }
 
-      // 2) realtime
       channel = supabase
         .channel('orders-updates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload: any) => {
           const row = payload?.new ?? payload?.old ?? null;
           if (!row) return;
-
-          // If a brand-new order for this user is inserted, start treating it as the latest
-          if (payload.eventType === 'INSERT') {
-            latestOrderId = row.id;
-          } else if (!latestOrderId) {
-            latestOrderId = row.id;
-          }
+          if (payload.eventType === 'INSERT') latestOrderId = row.id;
+          else if (!latestOrderId) latestOrderId = row.id;
 
           const isLatest = row.id === latestOrderId;
           if (isLatest && Array.isArray(row.menus)) {
             setMenus((row.menus as any[]).map(x =>
-              normalizeMenu(x, profile.portionDefault ?? defaultProfile.portionDefault)
+              normalizeMenu(x, profile.portionDefault)
             ));
           }
         })
         .subscribe();
     })();
 
-    return () => {
-      unsubscribed = true;
-      if (channel) supabase.removeChannel(channel);
-    };
+    return () => { unsubscribed = true; if (channel) supabase.removeChannel(channel); };
   }, [supabase, profile.portionDefault]);
 
-
-  // 🔓 When menus arrive (from any source), tell N8NGenerate to unlock.
-  // Also clear the localStorage pending key as an extra safety net.
+  // Unlock N8NGenerate when menus arrive
   useEffect(() => {
     if (menus.length > 0) {
       try { localStorage.removeItem('ic_pending_generation'); } catch {}
@@ -376,9 +375,7 @@ export default function DashboardPage() {
     }
   }, [menus]);
 
-
-
-  // ✅ Focused subscription + polling for the order created by N8NGenerate
+  // Focused subscription + polling for the order created by N8NGenerate
   useEffect(() => {
     if (!watchOrderId) return;
 
@@ -391,14 +388,13 @@ export default function DashboardPage() {
           const next = payload.new as any;
           if (Array.isArray(next?.menus)) {
             setMenus(next.menus.map((m: any) =>
-              normalizeMenu(m, profile.portionDefault ?? defaultProfile.portionDefault)
+              normalizeMenu(m, profile.portionDefault)
             ));
           }
         }
       )
       .subscribe();
 
-    // Polling fallback (~2 min, every 5s)
     let ticks = 0;
     pollHandleRef.current = setInterval(async () => {
       ticks++;
@@ -410,25 +406,16 @@ export default function DashboardPage() {
 
       if (!error && Array.isArray(data?.menus)) {
         setMenus(data.menus.map((m: any) =>
-          normalizeMenu(m, profile.portionDefault ?? defaultProfile.portionDefault)
+          normalizeMenu(m, profile.portionDefault)
         ));
-        if (pollHandleRef.current) {
-          clearInterval(pollHandleRef.current);
-          pollHandleRef.current = null;
-        }
+        if (pollHandleRef.current) { clearInterval(pollHandleRef.current); pollHandleRef.current = null; }
       }
-      if (ticks >= 24 && pollHandleRef.current) { // ~2 minutes
-        clearInterval(pollHandleRef.current);
-        pollHandleRef.current = null;
-      }
+      if (ticks >= 24 && pollHandleRef.current) { clearInterval(pollHandleRef.current); pollHandleRef.current = null; }
     }, 5000);
 
     return () => {
       supabase.removeChannel(channel);
-      if (pollHandleRef.current) {
-        clearInterval(pollHandleRef.current);
-        pollHandleRef.current = null;
-      }
+      if (pollHandleRef.current) { clearInterval(pollHandleRef.current); pollHandleRef.current = null; }
     };
   }, [watchOrderId, supabase, profile.portionDefault]);
 
@@ -438,7 +425,7 @@ export default function DashboardPage() {
     router.replace('/');
   }
 
-  // Hydrate existing app state from localStorage
+  // Hydrate from localStorage
   useEffect(() => {
     const p = load<Profile>(LS.PROFILE, defaultProfile);
     const w = load<Weekly>(LS.WEEKLY, defaultWeekly);
@@ -449,14 +436,14 @@ export default function DashboardPage() {
     const ba = load<BarItem[]>(LS.BAR, defaultBar);
     setProfile(p);
     setWeekly(w);
-    setMenus((m as any[]).map(x => normalizeMenu(x, (p.portionDefault ?? defaultProfile.portionDefault))));
+    setMenus((m as any[]).map(x => normalizeMenu(x, p.portionDefault)));
     setCartMeal(cm);
     setCartExtra(ce);
     setPantry(pa.length ? pa : defaultPantry);
     setBar(autoFadePerishables(ba.length ? ba : defaultBar));
   }, []);
 
-  // Pull values from signup blobs (if present)
+  // Pull values from signup blobs
   useEffect(() => {
     const h = load<HouseholdSetup | null>(LS.IC_HOUSE, null);
     if (h) {
@@ -467,32 +454,19 @@ export default function DashboardPage() {
     if (s?.preferredGroceryStore) setProfile(p => ({ ...p, store: s.preferredGroceryStore || p.store }));
   }, []);
 
-  // Save/Upsert menus into public.menus when they arrive for the current order
+  // Upsert menus table for current order
   useEffect(() => {
     if (!currentOrder || menus.length === 0) return;
-
     (async () => {
       try {
-        // Map your UI menu shape to table columns
-        const rows = menus.map((m) => ({
-          id: m.id,                                   // must be unique; your normalizeMenu provides one
+        const rows = menus.map(m => ({
+          id: m.id,
           order_id: currentOrder.id,
           correlation_id: currentOrder.correlation_id,
           title: m.title,
           description: m.description,
-          // If you later add columns, include them here:
-          // hero: m.hero,
-          // portions: m.portions,
-          // approved: m.approved,
-          // feedback: m.feedback,
-          // ingredients: m.ingredients,               // JSONB column recommended
         }));
-
-        // Avoid duplicates: upsert on primary/unique constraint – here we use "id"
-        const { error } = await supabase
-          .from('menus')
-          .upsert(rows, { onConflict: 'id' });
-
+        const { error } = await supabase.from('menus').upsert(rows, { onConflict: 'id' });
         if (error) console.error('[menus upsert] error:', error);
       } catch (e) {
         console.error('[menus upsert] exception:', e);
@@ -526,16 +500,9 @@ export default function DashboardPage() {
   }
 
   function approveMenu(menu: MenuItem) {
-    // scale to chosen portions (your existing helper)
     const scaled = scaleIngredients(menu.ingredients, menu.portions);
-
-    // everything the user already has (active pantry + “on hand” text)
     const haveSet = buildHaveSet(pantry, weekly.onHandText);
-
-    // keep ONLY missing ingredients
     const missing = scaled.filter(ing => !haveSet.has(normalizeName(ing.name)));
-
-    // map to cart lines
     const newLines: CartLine[] = missing.map(ing => ({
       id: uid(),
       name: ing.name,
@@ -544,17 +511,7 @@ export default function DashboardPage() {
       estPrice: +(linePrice(ing)).toFixed(2),
       section: 'meal',
     }));
-
-    // add to cart if anything is missing
-    if (newLines.length > 0) {
-      setCartMeal(prev => [...prev, ...newLines]);
-    } else {
-      // optional: give gentle feedback if everything is already on hand
-      console.info('[approveMenu] All ingredients already on hand for:', menu.title);
-      // e.g. toast('Nice! You already have everything for this recipe.');
-    }
-
-    // mark the menu approved like before
+    if (newLines.length > 0) setCartMeal(prev => [...prev, ...newLines]);
     setMenus(prev => prev.map(m => (m.id === menu.id ? { ...m, approved: true } : m)));
   }
 
@@ -572,9 +529,7 @@ export default function DashboardPage() {
     const line: CartLine = { id: uid(), name, qty, measure, estPrice, section: 'extra' };
     setCartExtra(prev => [...prev, line]);
   }
-  function openInstacart() {
-    window.open('https://www.instacart.com', '_blank');
-  }
+  function openInstacart() { window.open('https://www.instacart.com', '_blank'); }
   function withinBudget(): boolean {
     if (weekly.budgetType === 'none' || !weekly.budgetValue) return true;
     if (weekly.budgetType === 'perWeek') return grandTotal <= weekly.budgetValue + 0.01;
@@ -596,16 +551,7 @@ export default function DashboardPage() {
     setOnHandPreview(undefined);
   }
   function addPantryManual(name: string, qty: number | null, measure: Measure | null, type?: string) {
-    const item: PantryItem = {
-      id: uid(),
-      name,
-      qty,
-      measure,
-      staple: qty === null && measure === null,
-      active: true,
-      updatedAt: now(),
-      type,
-    };
+    const item: PantryItem = { id: uid(), name, qty, measure, staple: qty === null && measure === null, active: true, updatedAt: now(), type };
     setPantry(prev => [item, ...prev]);
   }
   function submitPantryImage() {
@@ -613,9 +559,7 @@ export default function DashboardPage() {
     addPantryManual('Chili crisp', 6, 'oz', 'condiment');
     setPantryPreview(undefined);
   }
-  function reorderPantryStaple(name: string) {
-    addExtraItem(name, 1, 'count', 4.99);
-  }
+  function reorderPantryStaple(name: string) { addExtraItem(name, 1, 'count', 4.99); }
   function startEditPantryItem(item: PantryItem) {
     setEditingPantryItem(item.id);
     setEditForm({ name: item.name, qty: item.qty !== null ? String(item.qty) : '', measure: item.measure });
@@ -661,34 +605,31 @@ export default function DashboardPage() {
     extra: {
       weeklyMood: weekly.mood,
       weeklyExtras: weekly.extras,
-      weeklyOnHandText: weekly.onHandText,
+      weeklyOnHandText: weekly.onHandText,   // ← auto-built from the 3-box rows
       pantrySnapshot: pantry,
       barSnapshot: bar,
       currentMenusCount: menus?.length ?? 0,
-      // budget info included below in the N8NGenerate props
     },
   };
 
-  const bgStyle = {
-    backgroundImage: 'url(/hero.jpg)',
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-  } as const;
+  const bgStyle = { backgroundImage: 'url(/hero.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' } as const;
 
-  // Called when the order row is inserted by N8NGenerate
   function handleOrderSubmitted(order: { id: string; correlation_id: string }) {
-    setMenus([]);
-    resetCart();
-
-    // Also clear persisted copies so stale items don’t return on refresh
+    setMenus([]); resetCart();
     try {
       localStorage.removeItem(LS.MENUS);
       localStorage.removeItem(LS.CART_MEAL);
       localStorage.removeItem(LS.CART_EXTRA);
     } catch {}
     setWatchOrderId(order.id);
-    setCurrentOrder(order);  
+    setCurrentOrder(order);
   }
+
+  // helpers for the on-hand rows UI
+  const updateOnHand = (idx: number, patch: Partial<OnHandItem>) =>
+    setOnHandItems(rows => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  const addOnHandRow = () => setOnHandItems(r => [...r, { qty: '', name: '', notes: '' }]);
+  const removeOnHandRow = (idx: number) => setOnHandItems(r => r.filter((_, i) => i !== idx));
 
   return (
     <div className="min-h-screen" style={bgStyle}>
@@ -714,9 +655,7 @@ export default function DashboardPage() {
               </button>
               {accountOpen && (
                 <div className="absolute right-4 top-14 w-64 bg-white border rounded shadow-lg">
-                  <a href="/account?edit=1" className="block px-4 py-2 hover:bg-gray-50">
-                    Account Profile
-                  </a>
+                  <a href="/account?edit=1" className="block px-4 py-2 hover:bg-gray-50">Account Profile</a>
                   <a href="/checkout" className="block px-4 py-2 hover:bg-gray-50">Subscriptions & Billing</a>
                   <button onClick={signOut} className="w-full text-left px-4 py-2 hover:bg-gray-50">Sign out</button>
                 </div>
@@ -769,15 +708,56 @@ export default function DashboardPage() {
                 </div>
               </div>
 
+              {/* === REPLACED TEXTAREA WITH 3-BOX ROWS === */}
               <div className="mt-4">
                 <label className="block text-sm font-medium">
                   Do you have any ingredients on hand that you would like us to use in menu planning for this week?
                 </label>
-                <p className="text-xs text-gray-600">
-                  (please list items with quantity — e.g. 4 roma tomatoes, 2 lb chicken thighs, 3 bell peppers, 4 oz truffle oil)
-                </p>
-                <textarea className="w-full border rounded px-3 py-2 mt-1" rows={3} value={weekly.onHandText} onChange={(e) => setWeekly(w => ({ ...w, onHandText: e.target.value }))} />
-                <div className="flex items-center gap-3 mt-2">
+
+                <div className="mt-2 space-y-2">
+                  {onHandItems.map((row, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-start">
+                      <input
+                        className="col-span-2 border rounded px-2 py-2"
+                        placeholder="Qty"
+                        value={row.qty}
+                        onChange={(e) => updateOnHand(idx, { qty: e.target.value })}
+                      />
+                      <input
+                        className="col-span-5 border rounded px-2 py-2"
+                        placeholder="Item name (e.g., roma tomatoes)"
+                        value={row.name}
+                        onChange={(e) => updateOnHand(idx, { name: e.target.value })}
+                      />
+                      <div className="col-span-4">
+                        <div className="text-xs text-gray-600 mb-1">
+                          Notes <span className="text-[11px] text-gray-400">(e.g., use full amount this week?)</span>
+                        </div>
+                        <input
+                          className="w-full border rounded px-2 py-2"
+                          placeholder="Any notes"
+                          value={row.notes}
+                          onChange={(e) => updateOnHand(idx, { notes: e.target.value })}
+                        />
+                      </div>
+                      <button
+                        className="col-span-1 text-xs px-2 py-2 border rounded bg-white hover:bg-gray-50"
+                        onClick={() => removeOnHandRow(idx)}
+                        title="Remove row"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+
+                  <div className="flex gap-2 pt-1">
+                    <button className="px-3 py-2 rounded border bg-white hover:bg-gray-50" onClick={addOnHandRow}>+ Add item</button>
+                    <button className="px-3 py-2 rounded border bg-white hover:bg-gray-50" onClick={() => setOnHandItems([{ qty: '', name: '', notes: '' }])}>Clear</button>
+                  </div>
+                </div>
+
+                {/* Camera section kept below the rows */}
+                <div className="flex items-center gap-3 mt-3">
                   <label className="px-3 py-2 border rounded cursor-pointer bg-white hover:bg-gray-50">
                     📷 Camera
                     <input
@@ -800,6 +780,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
+              {/* === END 3-BOX ROWS === */}
 
               <div className="mt-4">
                 <label className="block text-sm font-medium">What are you in the mood for this week?</label>
@@ -818,12 +799,12 @@ export default function DashboardPage() {
                     weekly={{
                       mood: weekly.mood,
                       extras: weekly.extras,
-                      onHandText: weekly.onHandText,
-                      pantrySnapshot: pantry,                 // your pantry state
-                      barSnapshot: bar,                       // your bar state
-                      currentMenusCount: menus?.length ?? 0,  // how many menus currently
-                      budgetType: weekly.budgetType,          // "perWeek" | "perMeal" | "none"
-                      budgetValue: weekly.budgetValue ?? null // number | null
+                      onHandText: weekly.onHandText,          // built from rows
+                      pantrySnapshot: pantry,
+                      barSnapshot: bar,
+                      currentMenusCount: menus?.length ?? 0,
+                      budgetType: weekly.budgetType,
+                      budgetValue: weekly.budgetValue ?? null
                     }}
                     onSubmitted={handleOrderSubmitted}
                   />
@@ -1048,8 +1029,8 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-4 flex gap-2">
-                <button className="flex-1 px-3 py-2 rounded bg-pink-500 text-white" onClick={createMocktail}>Create Mocktail</button>
-                <button className="flex-1 px-3 py-2 rounded bg-purple-600 text-white" onClick={createCocktail}>Create Cocktail</button>
+                <button className="flex-1 px-3 py-2 rounded bg-pink-500 text-white" onClick={() => setBeverageRecipe(generateBeverageRecipe(bar, 'mocktail'))}>Create Mocktail</button>
+                <button className="flex-1 px-3 py-2 rounded bg-purple-600 text-white" onClick={() => setBeverageRecipe(generateBeverageRecipe(bar, 'cocktail'))}>Create Cocktail</button>
               </div>
 
               {beverageRecipe && (
@@ -1062,7 +1043,7 @@ export default function DashboardPage() {
                     <h5 className="font-semibold text-sm mb-1">Ingredients:</h5>
                     <ul className="text-sm space-y-1">
                       {beverageRecipe.ingredients.map((ing, idx) => (
-                        <li key={idx}>• {ing.qty} {ing.measure} {ing.name}</li>
+                        <li key={idx}>• {ig.qty} {ing.measure} {ing.name}</li>
                       ))}
                     </ul>
                   </div>
@@ -1163,7 +1144,7 @@ function CartSection({ title, lines }: { title: string; lines: CartLine[] }) {
 
 function PantryAddForm({ onAdd }: { onAdd: (name: string, qty: number | null, measure: Measure | null, type?: string) => void }) {
   const [name, setName] = useState('');
-  const [qty, setQty] = useState<string>('');
+  thead const [qty, setQty] = useState<string>('');
   const [measure, setMeasure] = useState<Measure>('oz');
   const [type, setType] = useState<string>('other');
 
