@@ -141,6 +141,55 @@ function linePrice(i: Ingredient) {
   if (!i.estPrice) return 0;
   return +(i.qty * i.estPrice).toFixed(2);
 }
+// --- INGREDIENT MATCHING HELPERS (simple + resilient) ---
+const UNIT_WORDS = new Set([
+  'oz','ounce','ounces','lb','pound','pounds','ml','g','gram','grams','kg',
+  'tsp','teaspoon','teaspoons','tbsp','tablespoon','tablespoons',
+  'cup','cups','count','pieces','piece'
+]);
+
+function normalizeName(s: string): string {
+  let x = (s || '').toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  x = x.replace(
+    /^(?:\d+(?:\.\d+)?\s*)?(?:oz|ounce|ounces|lb|pound|pounds|ml|g|gram|grams|kg|tsp|teaspoon|teaspoons|tbsp|tablespoon|tablespoons|cup|cups|count|pieces|piece)\b\s*/i,
+    ''
+  ).trim();
+
+  if (x.endsWith('es')) x = x.slice(0, -2);
+  else if (x.endsWith('s')) x = x.slice(0, -1);
+
+  return x;
+}
+
+function parseOnHandToNames(text: string): string[] {
+  if (!text) return [];
+  return text
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => {
+      const cleaned = part.replace(/^\s*\d+(?:\.\d+)?\s*(?:[a-z]+)?\s*/i, '');
+      return normalizeName(cleaned);
+    })
+    .filter(Boolean);
+}
+
+function buildHaveSet(pantry: PantryItem[], onHandText: string): Set<string> {
+  const have = new Set<string>();
+  for (const p of pantry) {
+    if (p?.name && p.active !== false) {
+      have.add(normalizeName(p.name));
+    }
+  }
+  for (const n of parseOnHandToNames(onHandText)) {
+    if (n && !UNIT_WORDS.has(n)) have.add(n);
+  }
+  return have;
+}
 function autoFadePerishables(items: BarItem[]): BarItem[] {
   const weekMs = 7 * 24 * 3600 * 1000;
   const t = now();
@@ -469,8 +518,17 @@ export default function DashboardPage() {
   }
 
   function approveMenu(menu: MenuItem) {
+    // scale to chosen portions (your existing helper)
     const scaled = scaleIngredients(menu.ingredients, menu.portions);
-    const newLines: CartLine[] = scaled.map(ing => ({
+
+    // everything the user already has (active pantry + “on hand” text)
+    const haveSet = buildHaveSet(pantry, weekly.onHandText);
+
+    // keep ONLY missing ingredients
+    const missing = scaled.filter(ing => !haveSet.has(normalizeName(ing.name)));
+
+    // map to cart lines
+    const newLines: CartLine[] = missing.map(ing => ({
       id: uid(),
       name: ing.name,
       qty: ing.qty,
@@ -478,9 +536,20 @@ export default function DashboardPage() {
       estPrice: +(linePrice(ing)).toFixed(2),
       section: 'meal',
     }));
-    setCartMeal(prev => [...prev, ...newLines]);
+
+    // add to cart if anything is missing
+    if (newLines.length > 0) {
+      setCartMeal(prev => [...prev, ...newLines]);
+    } else {
+      // optional: give gentle feedback if everything is already on hand
+      console.info('[approveMenu] All ingredients already on hand for:', menu.title);
+      // e.g. toast('Nice! You already have everything for this recipe.');
+    }
+
+    // mark the menu approved like before
     setMenus(prev => prev.map(m => (m.id === menu.id ? { ...m, approved: true } : m)));
   }
+
   function submitFeedback(menu: MenuItem, feedback: string) {
     setMenus(prev =>
       prev.map(m =>
