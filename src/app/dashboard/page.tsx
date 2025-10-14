@@ -716,7 +716,7 @@ export default function DashboardPage() {
 
                 <div className="mt-2 space-y-2">
                   {onHandItems.map((row, idx) => (
-                    <div key={idx} className="grid grid-cols-12 gap-2 items-start">
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                       <input
                         className="col-span-2 border rounded px-2 py-2"
                         placeholder="Qty"
@@ -729,17 +729,12 @@ export default function DashboardPage() {
                         value={row.name}
                         onChange={(e) => updateOnHand(idx, { name: e.target.value })}
                       />
-                      <div className="col-span-4">
-                        <div className="text-xs text-gray-600 mb-1">
-                          Notes <span className="text-[11px] text-gray-400">(e.g., use full amount this week?)</span>
-                        </div>
-                        <input
-                          className="w-full border rounded px-2 py-2"
-                          placeholder="Any notes"
-                          value={row.notes}
-                          onChange={(e) => updateOnHand(idx, { notes: e.target.value })}
-                        />
-                      </div>
+                      <input
+                        className="col-span-4 border rounded px-2 py-2"
+                        placeholder="Notes (e.g., use full amount this week?)"
+                        value={row.notes}
+                        onChange={(e) => updateOnHand(idx, { notes: e.target.value })}
+                      />
                       <button
                         className="col-span-1 text-xs px-2 py-2 border rounded bg-white hover:bg-gray-50"
                         onClick={() => removeOnHandRow(idx)}
