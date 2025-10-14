@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
 
@@ -179,6 +179,57 @@ export default function N8NGenerate({
   const [chefOpen, setChefOpen] = useState(false);
   const supabase = createClient();
 
+  // ---------- NEW: persist + lock button until menus land ----------
+  const PENDING_KEY = 'ic_pending_generation';
+  const [generating, setGenerating] = useState(false);
+  const genChannelRef = useRef<any>(null);
+
+  const subscribeForCompletion = (correlationId: string) => {
+    if (genChannelRef.current) {
+      try { supabase.removeChannel(genChannelRef.current); } catch {}
+      genChannelRef.current = null;
+    }
+    const ch = supabase
+      .channel(`gen-${correlationId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `correlation_id=eq.${correlationId}` },
+        (payload) => {
+          try {
+            const row: any = payload.new;
+            if (row?.menus && Array.isArray(row.menus) && row.menus.length > 0) {
+              setGenerating(false);
+              localStorage.removeItem(PENDING_KEY);
+              if (genChannelRef.current) supabase.removeChannel(genChannelRef.current);
+              genChannelRef.current = null;
+            }
+          } catch {}
+        }
+      )
+      .subscribe();
+    genChannelRef.current = ch;
+  };
+
+  useEffect(() => {
+    const raw = localStorage.getItem(PENDING_KEY);
+    if (raw) {
+      try {
+        const { correlationId } = JSON.parse(raw) as { correlationId: string };
+        if (correlationId) {
+          setGenerating(true);
+          subscribeForCompletion(correlationId);
+        }
+      } catch {}
+    }
+    return () => {
+      if (genChannelRef.current) {
+        try { supabase.removeChannel(genChannelRef.current); } catch {}
+        genChannelRef.current = null;
+      }
+    };
+  }, []);
+  // ---------------------------------------------------------------
+
   // small helpers
   const strToArr = (s?: string | null) => {
     if (!s || s.trim().toLowerCase() === 'no') return [];
@@ -331,7 +382,14 @@ export default function N8NGenerate({
         .single();
       if (insertErr) throw insertErr;
 
-      // 👇 NEW: notify parent so it can subscribe for live menu updates
+      // NEW: persist pending + subscribe to completion (keeps button disabled even after modal hides)
+      try {
+        localStorage.setItem(PENDING_KEY, JSON.stringify({ orderId: inserted.id, correlationId }));
+      } catch {}
+      setGenerating(true);
+      subscribeForCompletion(correlationId);
+
+      // NEW: notify parent so it can subscribe for live menu updates
       if (inserted && onSubmitted) {
         onSubmitted({ id: inserted.id, correlation_id: inserted.correlation_id });
       }
@@ -347,6 +405,8 @@ export default function N8NGenerate({
     } catch (err: any) {
       console.error(err);
       alert(`Failed: ${err?.message ?? String(err)}`);
+      setGenerating(false);
+      try { localStorage.removeItem(PENDING_KEY); } catch {}
     } finally {
       setBusy(false);
       // popup auto-hides after 10s
@@ -355,12 +415,13 @@ export default function N8NGenerate({
 
   return (
     <>
+      {/* Button stays disabled while busy or while a generation is in-flight */}
       <button
         onClick={onGenerate}
-        disabled={busy}
+        disabled={busy || generating}
         className="px-5 py-2 rounded bg-black text-white disabled:opacity-50"
       >
-        {busy ? 'Cooking your menu…' : 'Generate Menu'}
+        {busy || generating ? 'Cooking your menu…' : 'Generate Menu'}
       </button>
 
       <ChefCookingPortal open={chefOpen} onClose={() => setChefOpen(false)} autoHideMs={10000} />
