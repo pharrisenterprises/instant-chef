@@ -564,6 +564,15 @@ export default function DashboardPage() {
 
   // Called when the order row is inserted by N8NGenerate
 function handleOrderSubmitted(order: { id: string; correlation_id: string }) {
+  setMenus([]);
+  resetCart();
+
+  // Also clear persisted copies so stale items don’t return on refresh
+  try {
+    localStorage.removeItem(LS.MENUS);
+    localStorage.removeItem(LS.CART_MEAL);
+    localStorage.removeItem(LS.CART_EXTRA);
+  } catch {}
   setWatchOrderId(order.id);
   setCurrentOrder(order);  
 }

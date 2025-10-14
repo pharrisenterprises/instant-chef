@@ -154,7 +154,7 @@ function normalizeBudgetType(t?: string | null): 'per_week' | 'per_meal' | null 
   if (!s || s === 'none' || s === 'no budget') return null;
 
   // normalize spaces/underscores/camel
-  const camel = s.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase(); // perWeek -> per_Week -> per_week (after lower)
+  const camel = s.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
   const cleaned = camel.replace(/\s+/g, '_').replace(/\$/g, '');
 
   if (cleaned === 'per_week' || cleaned === 'perweek' || cleaned === 'week' || cleaned === 'weekly')
@@ -183,14 +183,63 @@ export default function N8NGenerate({
   const PENDING_KEY = 'ic_pending_generation';
   const [generating, setGenerating] = useState(false);
   const genChannelRef = useRef<any>(null);
+  const stopPollingRef = useRef<(() => void) | null>(null);
 
-  const subscribeForCompletion = (correlationId: string) => {
+  const finish = () => {
+    setGenerating(false);
+    try { localStorage.removeItem(PENDING_KEY); } catch {}
+    if (genChannelRef.current) {
+      try { supabase.removeChannel(genChannelRef.current); } catch {}
+      genChannelRef.current = null;
+    }
+    if (stopPollingRef.current) {
+      try { stopPollingRef.current(); } catch {}
+      stopPollingRef.current = null;
+    }
+  };
+
+  const startPollingForMenus = (orderId: string) => {
+    let stopped = false;
+
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        // Check menus table
+        const { data: mData } = await supabase
+          .from('menus')
+          .select('id')
+          .eq('order_id', orderId)
+          .limit(1);
+        if (mData && mData.length > 0) {
+          finish();
+          return;
+        }
+        // Fallback: check orders.menus array (if you store it there)
+        const { data: ord } = await supabase
+          .from('orders')
+          .select('menus')
+          .eq('id', orderId)
+          .single();
+        if (ord?.menus && Array.isArray(ord.menus) && ord.menus.length > 0) {
+          finish();
+          return;
+        }
+      } catch {}
+      setTimeout(tick, 4000);
+    };
+
+    tick();
+    return () => { stopped = true; };
+  };
+
+  const subscribeForCompletion = (correlationId: string, orderId: string) => {
     if (genChannelRef.current) {
       try { supabase.removeChannel(genChannelRef.current); } catch {}
       genChannelRef.current = null;
     }
     const ch = supabase
       .channel(`gen-${correlationId}`)
+      // Orders.menus updated path
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `correlation_id=eq.${correlationId}` },
@@ -198,26 +247,32 @@ export default function N8NGenerate({
           try {
             const row: any = payload.new;
             if (row?.menus && Array.isArray(row.menus) && row.menus.length > 0) {
-              setGenerating(false);
-              localStorage.removeItem(PENDING_KEY);
-              if (genChannelRef.current) supabase.removeChannel(genChannelRef.current);
-              genChannelRef.current = null;
+              finish();
             }
           } catch {}
         }
       )
+      // Menus inserted path (if you store each menu as a row)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'menus', filter: `order_id=eq.${orderId}` },
+        () => finish()
+      )
       .subscribe();
     genChannelRef.current = ch;
+
+    // Safety net: polling in case realtime is blocked by RLS or network
+    stopPollingRef.current = startPollingForMenus(orderId);
   };
 
   useEffect(() => {
     const raw = localStorage.getItem(PENDING_KEY);
     if (raw) {
       try {
-        const { correlationId } = JSON.parse(raw) as { correlationId: string };
+        const { correlationId, orderId } = JSON.parse(raw) as { correlationId: string; orderId?: string };
         if (correlationId) {
           setGenerating(true);
-          subscribeForCompletion(correlationId);
+          subscribeForCompletion(correlationId, orderId || '');
         }
       } catch {}
     }
@@ -225,6 +280,10 @@ export default function N8NGenerate({
       if (genChannelRef.current) {
         try { supabase.removeChannel(genChannelRef.current); } catch {}
         genChannelRef.current = null;
+      }
+      if (stopPollingRef.current) {
+        try { stopPollingRef.current(); } catch {}
+        stopPollingRef.current = null;
       }
     };
   }, []);
@@ -387,7 +446,7 @@ export default function N8NGenerate({
         localStorage.setItem(PENDING_KEY, JSON.stringify({ orderId: inserted.id, correlationId }));
       } catch {}
       setGenerating(true);
-      subscribeForCompletion(correlationId);
+      subscribeForCompletion(correlationId, inserted.id);
 
       // NEW: notify parent so it can subscribe for live menu updates
       if (inserted && onSubmitted) {
