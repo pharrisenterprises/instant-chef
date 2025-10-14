@@ -98,6 +98,8 @@ type BeverageRecipe = {
   imageUrl: string;
 };
 
+type OnHandItem = { qty: string; name: string; notes: string };
+
 /* -------------------- Helpers -------------------- */
 const now = () => Date.now();
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -141,6 +143,7 @@ function linePrice(i: Ingredient) {
   if (!i.estPrice) return 0;
   return +(i.qty * i.estPrice).toFixed(2);
 }
+
 // --- INGREDIENT MATCHING HELPERS (simple + resilient) ---
 const UNIT_WORDS = new Set([
   'oz','ounce','ounces','lb','pound','pounds','ml','g','gram','grams','kg',
@@ -190,6 +193,7 @@ function buildHaveSet(pantry: PantryItem[], onHandText: string): Set<string> {
   }
   return have;
 }
+
 function autoFadePerishables(items: BarItem[]): BarItem[] {
   const weekMs = 7 * 24 * 3600 * 1000;
   const t = now();
@@ -200,6 +204,7 @@ function autoFadePerishables(items: BarItem[]): BarItem[] {
     return it;
   });
 }
+
 function generateBeverageRecipe(bar: BarItem[], type: 'cocktail' | 'mocktail'): BeverageRecipe {
   const activeItems = bar.filter(i => i.active);
   let selected: { name: string; qty: number; measure: string }[] = [];
@@ -269,6 +274,9 @@ export default function DashboardPage() {
   const [onHandPreview, setOnHandPreview] = useState<string | undefined>(undefined);
   const [pantryPreview, setPantryPreview] = useState<string | undefined>(undefined);
   const [barPreview, setBarPreview] = useState<string | undefined>(undefined);
+  const [onHandItems, setOnHandItems] = useState<OnHandItem[]>([
+    { qty: '', name: '', notes: '' },
+  ]);
   const [currentOrder, setCurrentOrder] = useState<{ id: string; correlation_id: string } | null>(null);
   // 🔔 watch the specific order we just created
   const [watchOrderId, setWatchOrderId] = useState<string | null>(null);
@@ -424,11 +432,11 @@ export default function DashboardPage() {
     };
   }, [watchOrderId, supabase, profile.portionDefault]);
 
-    async function signOut() {
-      try { await supabase.auth.signOut(); } catch {}
-      Object.values(LS).forEach(k => localStorage.removeItem(k));
-      router.replace('/');
-    }
+  async function signOut() {
+    try { await supabase.auth.signOut(); } catch {}
+    Object.values(LS).forEach(k => localStorage.removeItem(k));
+    router.replace('/');
+  }
 
   // Hydrate existing app state from localStorage
   useEffect(() => {
@@ -657,6 +665,7 @@ export default function DashboardPage() {
       pantrySnapshot: pantry,
       barSnapshot: bar,
       currentMenusCount: menus?.length ?? 0,
+      // budget info included below in the N8NGenerate props
     },
   };
 
@@ -667,19 +676,19 @@ export default function DashboardPage() {
   } as const;
 
   // Called when the order row is inserted by N8NGenerate
-function handleOrderSubmitted(order: { id: string; correlation_id: string }) {
-  setMenus([]);
-  resetCart();
+  function handleOrderSubmitted(order: { id: string; correlation_id: string }) {
+    setMenus([]);
+    resetCart();
 
-  // Also clear persisted copies so stale items don’t return on refresh
-  try {
-    localStorage.removeItem(LS.MENUS);
-    localStorage.removeItem(LS.CART_MEAL);
-    localStorage.removeItem(LS.CART_EXTRA);
-  } catch {}
-  setWatchOrderId(order.id);
-  setCurrentOrder(order);  
-}
+    // Also clear persisted copies so stale items don’t return on refresh
+    try {
+      localStorage.removeItem(LS.MENUS);
+      localStorage.removeItem(LS.CART_MEAL);
+      localStorage.removeItem(LS.CART_EXTRA);
+    } catch {}
+    setWatchOrderId(order.id);
+    setCurrentOrder(order);  
+  }
 
   return (
     <div className="min-h-screen" style={bgStyle}>
