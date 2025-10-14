@@ -1043,7 +1043,7 @@ export default function DashboardPage() {
                     <h5 className="font-semibold text-sm mb-1">Ingredients:</h5>
                     <ul className="text-sm space-y-1">
                       {beverageRecipe.ingredients.map((ing, idx) => (
-                        <li key={idx}>• {ig.qty} {ing.measure} {ing.name}</li>
+                        <li key={idx}>• {ing.qty} {ing.measure} {ing.name}</li>
                       ))}
                     </ul>
                   </div>
@@ -1144,7 +1144,7 @@ function CartSection({ title, lines }: { title: string; lines: CartLine[] }) {
 
 function PantryAddForm({ onAdd }: { onAdd: (name: string, qty: number | null, measure: Measure | null, type?: string) => void }) {
   const [name, setName] = useState('');
-  thead const [qty, setQty] = useState<string>('');
+  const [qty, setQty] = useState<string>('');
   const [measure, setMeasure] = useState<Measure>('oz');
   const [type, setType] = useState<string>('other');
 
