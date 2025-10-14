@@ -153,7 +153,6 @@ function normalizeBudgetType(t?: string | null): 'per_week' | 'per_meal' | null 
   const s = t.toString().trim().toLowerCase();
   if (!s || s === 'none' || s === 'no budget') return null;
 
-  // normalize spaces/underscores/camel
   const camel = s.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
   const cleaned = camel.replace(/\s+/g, '_').replace(/\$/g, '');
 
@@ -204,7 +203,6 @@ export default function N8NGenerate({
     const tick = async () => {
       if (stopped) return;
       try {
-        // Check menus table
         const { data: mData } = await supabase
           .from('menus')
           .select('id')
@@ -214,7 +212,6 @@ export default function N8NGenerate({
           finish();
           return;
         }
-        // Fallback: check orders.menus array (if you store it there)
         const { data: ord } = await supabase
           .from('orders')
           .select('menus')
@@ -239,7 +236,6 @@ export default function N8NGenerate({
     }
     const ch = supabase
       .channel(`gen-${correlationId}`)
-      // Orders.menus updated path
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `correlation_id=eq.${correlationId}` },
@@ -252,7 +248,6 @@ export default function N8NGenerate({
           } catch {}
         }
       )
-      // Menus inserted path (if you store each menu as a row)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'menus', filter: `order_id=eq.${orderId}` },
@@ -265,17 +260,65 @@ export default function N8NGenerate({
     stopPollingRef.current = startPollingForMenus(orderId);
   };
 
+  // NEW: unlock when dashboard tells us menus are ready (works even if DB realtime is blocked)
+  useEffect(() => {
+    const handler = () => finish();
+    window.addEventListener('ic:menus-ready', handler);
+    return () => window.removeEventListener('ic:menus-ready', handler);
+  }, []);
+
+  // On mount, only re-lock if the pending order truly exists and is still empty
   useEffect(() => {
     const raw = localStorage.getItem(PENDING_KEY);
-    if (raw) {
+
+    (async () => {
+      if (!raw) return;
+
       try {
-        const { correlationId, orderId } = JSON.parse(raw) as { correlationId: string; orderId?: string };
-        if (correlationId) {
-          setGenerating(true);
-          subscribeForCompletion(correlationId, orderId || '');
+        const { correlationId, orderId, startedAt } = JSON.parse(raw) as {
+          correlationId: string;
+          orderId?: string;
+          startedAt?: number;
+        };
+
+        // Safety: if entry is too old (e.g., after deploy), clear it
+        if (startedAt && Date.now() - startedAt > 24 * 3600 * 1000) {
+          localStorage.removeItem(PENDING_KEY);
+          setGenerating(false);
+          return;
         }
-      } catch {}
-    }
+
+        if (!correlationId) {
+          localStorage.removeItem(PENDING_KEY);
+          setGenerating(false);
+          return;
+        }
+
+        // Verify order status
+        if (orderId) {
+          const { data: ord } = await supabase
+            .from('orders')
+            .select('id, menus')
+            .eq('id', orderId)
+            .maybeSingle();
+
+          // No order or already has menus → clear
+          if (!ord || (Array.isArray(ord.menus) && ord.menus.length > 0)) {
+            localStorage.removeItem(PENDING_KEY);
+            setGenerating(false);
+            return;
+          }
+        }
+
+        // Still pending → keep disabled and subscribe
+        setGenerating(true);
+        subscribeForCompletion(correlationId, orderId || '');
+      } catch {
+        localStorage.removeItem(PENDING_KEY);
+        setGenerating(false);
+      }
+    })();
+
     return () => {
       if (genChannelRef.current) {
         try { supabase.removeChannel(genChannelRef.current); } catch {}
@@ -286,7 +329,7 @@ export default function N8NGenerate({
         stopPollingRef.current = null;
       }
     };
-  }, []);
+  }, [supabase]);
   // ---------------------------------------------------------------
 
   // small helpers
@@ -441,14 +484,17 @@ export default function N8NGenerate({
         .single();
       if (insertErr) throw insertErr;
 
-      // NEW: persist pending + subscribe to completion (keeps button disabled even after modal hides)
+      // persist pending + subscribe to completion (keeps button disabled even after modal hides)
       try {
-        localStorage.setItem(PENDING_KEY, JSON.stringify({ orderId: inserted.id, correlationId }));
+        localStorage.setItem(
+          PENDING_KEY,
+          JSON.stringify({ orderId: inserted.id, correlationId, startedAt: Date.now() })
+        );
       } catch {}
       setGenerating(true);
       subscribeForCompletion(correlationId, inserted.id);
 
-      // NEW: notify parent so it can subscribe for live menu updates
+      // notify parent so it can subscribe for live menu updates
       if (inserted && onSubmitted) {
         onSubmitted({ id: inserted.id, correlation_id: inserted.correlation_id });
       }
