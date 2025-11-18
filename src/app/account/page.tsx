@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import AccountSideNav from '@/components/AccountSideNav';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,8 @@ const equipmentOptions = [
   'Vitamix or High Speed Blender (Ninja)',
   'Fryer',
 ];
+
+const CUSTOM_STORE_VALUE = '__custom';
 
 type Profile = {
   id: string;
@@ -127,6 +130,33 @@ function AccountContent() {
   const [saving, setSaving] = useState(false);
 
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [newEquipmentItem, setNewEquipmentItem] = useState('');
+  const [newStore, setNewStore] = useState('');
+
+  const parseCommaSeparated = (value?: string | null) =>
+    value
+      ? value
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [];
+
+  const storesNearMeList = useMemo(
+    () => parseCommaSeparated(profile?.stores_near_me),
+    [profile?.stores_near_me]
+  );
+
+  const displayedEquipment = useMemo(() => {
+    const base = new Set(equipmentOptions);
+    const existing = profile?.equipment ?? [];
+    const custom = existing.filter((item) => item && !base.has(item));
+    return [...equipmentOptions, ...custom];
+  }, [profile?.equipment]);
+
+  const preferredStoreValue = profile?.preferred_store ?? '';
+  const isCustomPreferredStore =
+    !!preferredStoreValue && !storesNearMeList.includes(preferredStoreValue);
+  const preferredStoreSelection = isCustomPreferredStore ? CUSTOM_STORE_VALUE : preferredStoreValue;
 
   // 1) Read session & profile
   useEffect(() => {
@@ -200,6 +230,60 @@ function AccountContent() {
     set('equipment', Array.from(arr));
   }
 
+  function addEquipmentItem() {
+    if (!profile) return;
+    const trimmed = newEquipmentItem.trim();
+    if (!trimmed) return;
+    const eq = profile.equipment ?? [];
+    const exists = eq.some((item) => item.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      setNewEquipmentItem('');
+      return;
+    }
+    set('equipment', [...eq, trimmed]);
+    setNewEquipmentItem('');
+  }
+
+  function updateStores(list: string[]) {
+    if (!profile) return;
+    set('stores_near_me', list.join(', '));
+  }
+
+  function addStore() {
+    if (!profile) return;
+    const trimmed = newStore.trim();
+    if (!trimmed) return;
+    const exists = storesNearMeList.some((item) => item.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      setNewStore('');
+      return;
+    }
+    const next = [...storesNearMeList, trimmed];
+    updateStores(next);
+    setNewStore('');
+    if (!preferredStoreValue) {
+      set('preferred_store', trimmed);
+    }
+  }
+
+  function removeStore(storeName: string) {
+    const next = storesNearMeList.filter((item) => item !== storeName);
+    updateStores(next);
+    if (profile?.preferred_store === storeName) {
+      set('preferred_store', '');
+    }
+  }
+
+  function handlePreferredStoreChange(value: string) {
+    if (value === CUSTOM_STORE_VALUE) {
+      if (!isCustomPreferredStore) {
+        set('preferred_store', '');
+      }
+      return;
+    }
+    set('preferred_store', value);
+  }
+
   // 2) Save (UPSERT)
   async function saveProfile(nextAction?: 'finish') {
     if (!profile || !userId) return;
@@ -256,9 +340,16 @@ function AccountContent() {
       className="min-h-screen bg-cover bg-center bg-no-repeat py-12 px-6"
       style={{ backgroundImage: "url('/hero.jpg')" }}
     >
-      <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl max-w-4xl mx-auto p-8 space-y-10">
-        <h1 className="text-3xl font-bold text-center">Account Profile</h1>
+      <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl max-w-5xl mx-auto p-8">
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-bold">Account Profile</h1>
+          <p className="text-sm text-gray-600 mt-2">
+            Manage your Instant Chef details, household preferences, and shopping info in one place.
+          </p>
+        </div>
 
+        <AccountSideNav className="mb-8" />
+        <div className="space-y-10">
         {/* Basic Info */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Basic Info</h2>
@@ -413,7 +504,7 @@ function AccountContent() {
         <section>
           <h2 className="text-xl font-semibold mb-2">Equipment</h2>
           <div className="grid md:grid-cols-2 gap-2">
-            {equipmentOptions.map(opt => (
+            {displayedEquipment.map(opt => (
               <label key={opt} className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -424,8 +515,30 @@ function AccountContent() {
               </label>
             ))}
           </div>
+          <div className="flex flex-col sm:flex-row gap-2 mt-3">
+            <input
+              placeholder="Add another tool (e.g., Spiralizer)"
+              className="w-full border rounded px-3 py-2"
+              value={newEquipmentItem}
+              onChange={e => setNewEquipmentItem(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addEquipmentItem();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="px-4 py-2 rounded bg-gray-900 text-white text-sm disabled:opacity-50"
+              onClick={addEquipmentItem}
+              disabled={!newEquipmentItem.trim()}
+            >
+              + Item
+            </button>
+          </div>
           <input
-            placeholder="Other equipment (e.g., Spiralizer, Mandoline)"
+            placeholder="Notes about other equipment (e.g., Mandoline blades missing)"
             className="w-full border rounded px-3 py-2 mt-3"
             value={profile.other_equipment ?? ''}
             onChange={e => set('other_equipment', e.target.value)}
@@ -467,18 +580,78 @@ function AccountContent() {
         {/* Shopping */}
         <section>
           <h2 className="text-xl font-semibold mb-2">Shopping & Stores</h2>
-          <input
+          <label className="block text-sm font-medium mb-2">Grocery stores near you</label>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {storesNearMeList.map(store => (
+              <span
+                key={store}
+                className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700"
+              >
+                {store}
+                <button
+                  type="button"
+                  className="text-gray-500 hover:text-gray-700"
+                  onClick={() => removeStore(store)}
+                  aria-label={`Remove ${store}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {storesNearMeList.length === 0 && (
+              <p className="text-sm text-gray-500">Add the stores you shop at most often.</p>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 mb-4">
+            <input
+              className="w-full border rounded px-3 py-2"
+              placeholder="Add a grocery store"
+              value={newStore}
+              onChange={e => setNewStore(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addStore();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="px-4 py-2 rounded bg-gray-900 text-white text-sm disabled:opacity-50"
+              onClick={addStore}
+              disabled={!newStore.trim()}
+            >
+              + Item
+            </button>
+          </div>
+
+          <label className="block text-sm font-medium mb-2">Where should we shop this week?</label>
+          <select
             className="w-full border rounded px-3 py-2 mb-3"
-            placeholder="Stores Near Me"
-            value={profile.stores_near_me ?? ''}
-            onChange={e => set('stores_near_me', e.target.value)}
-          />
-          <input
-            className="w-full border rounded px-3 py-2 mb-3"
-            placeholder="Select which grocery store are we going to shop from this week?"
-            value={profile.preferred_store ?? ''}
-            onChange={e => set('preferred_store', e.target.value)}
-          />
+            value={preferredStoreSelection}
+            onChange={e => handlePreferredStoreChange(e.target.value)}
+          >
+            <option value="">Select a store</option>
+            {storesNearMeList.map(store => (
+              <option key={store} value={store}>
+                {store}
+              </option>
+            ))}
+            <option value={CUSTOM_STORE_VALUE}>Other (type manually)</option>
+          </select>
+          {preferredStoreSelection === CUSTOM_STORE_VALUE && (
+            <input
+              className="w-full border rounded px-3 py-2 mb-3"
+              placeholder="Type your preferred store"
+              value={preferredStoreValue}
+              onChange={e => set('preferred_store', e.target.value)}
+            />
+          )}
+          {storesNearMeList.length === 0 && preferredStoreSelection !== CUSTOM_STORE_VALUE && (
+            <p className="text-xs text-gray-500 mb-3">
+              Add a few stores above so you can quickly choose where we shop.
+            </p>
+          )}
           <label className="block mb-2">Do you prefer to shop organic when possible?</label>
           <select
             className="w-full border rounded px-3 py-2 mb-4"
@@ -519,6 +692,7 @@ function AccountContent() {
           >
             {saving ? 'Saving…' : 'Finish & Go to Dashboard'}
           </button>
+        </div>
         </div>
       </div>
     </div>

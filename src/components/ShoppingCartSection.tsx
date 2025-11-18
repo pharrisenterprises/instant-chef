@@ -8,13 +8,15 @@ export default function ShoppingCart({
   cartExtra,
   addExtraItem,
   withinBudget,
-  openInstacart
+  openInstacart,
+  onClearMeal,
 }: {
   cartMeal: CartLine[]
   cartExtra: CartLine[]
   addExtraItem: (name: string, qty: number, measure: Measure, estPrice: number) => void
   withinBudget: () => boolean
   openInstacart: () => void
+  onClearMeal?: () => void
 }) {
   const totalMeal = useMemo(() => cartMeal.reduce((a, c) => a + c.estPrice, 0), [cartMeal])
   const totalExtra = useMemo(() => cartExtra.reduce((a, c) => a + c.estPrice, 0), [cartExtra])
@@ -50,7 +52,7 @@ export default function ShoppingCart({
 
         <AddExtraItem onAdd={addExtraItem} />
 
-        <CartSection title="Meal Ingredients" lines={cartMeal} />
+        <CartSection title="Meal Ingredients" lines={cartMeal} onClear={onClearMeal} />
         <CartSection title="Additional Items" lines={cartExtra} />
 
         <div className="pt-2">
@@ -63,7 +65,7 @@ export default function ShoppingCart({
   )
 }
 
-function CartSection({ title, lines }: { title: string; lines: CartLine[] }) {
+function CartSection({ title, lines, onClear }: { title: string; lines: CartLine[]; onClear?: () => void }) {
   const subtotal = lines.reduce((a, c) => a + c.estPrice, 0)
   return (
     <div className="border rounded p-4 bg-white">
@@ -82,7 +84,21 @@ function CartSection({ title, lines }: { title: string; lines: CartLine[] }) {
           <p className="text-xs text-gray-500">No items yet.</p>
         )}
       </div>
-      <div className="mt-2 text-right text-sm">Subtotal: <span className="font-semibold">${subtotal.toFixed(2)}</span></div>
+      <div className="mt-2 flex items-center justify-between text-sm">
+        <span>
+          Subtotal: <span className="font-semibold">${subtotal.toFixed(2)}</span>
+        </span>
+        {onClear && (
+          <button
+            type="button"
+            className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-40"
+            onClick={onClear}
+            disabled={lines.length === 0}
+          >
+            Clear
+          </button>
+        )}
+      </div>
     </div>
   )
 }
