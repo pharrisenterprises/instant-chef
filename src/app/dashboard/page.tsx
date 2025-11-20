@@ -145,6 +145,21 @@ type Portionable = { portions: number };
 type Ingredient = { name: string; qty: number; measure: Measure; estPrice?: number };
 
 
+type SideItem = {
+
+  title: string;
+
+  ingredients: Ingredient[];
+
+  steps: string[];
+
+};
+
+
+
+
+
+
 
 
 
@@ -588,6 +603,82 @@ function parseInstructionSteps(source: unknown): string[] {
 
   return [];
 
+}
+
+function parseIngredientString(line?: unknown): Ingredient[] {
+  if (!line || typeof line !== 'string') return [];
+  return line
+    .split('|')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      const [name, rightRaw] = chunk.split(':').map((x) => x.trim());
+      if (!name) return null;
+      if (!rightRaw) {
+        return { name, qty: 1, measure: 'count' as Measure };
+      }
+      const parts = rightRaw.split(/\s+/);
+      const qty = Number(parts[0].replace(/[^0-9.]/g, ''));
+      const measure = parts.slice(1).join(' ') || 'count';
+      return {
+        name,
+        qty: Number.isFinite(qty) ? qty : 1,
+        measure: measure as Measure,
+      };
+    })
+    .filter(Boolean) as Ingredient[];
+}
+
+function splitSideSections(raw?: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.map((entry) => String(entry).trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    if (raw.includes('||')) {
+      return raw.split('||').map((x) => x.trim()).filter(Boolean);
+    }
+    if (raw.includes('\n\n')) {
+      return raw.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean);
+    }
+    return [raw.trim()];
+  }
+  return [];
+}
+
+function buildSidesFromRaw(source: any): SideItem[] {
+  if (Array.isArray(source?.sides)) {
+    return source.sides
+      .map((side: any, idx: number) => ({
+        title: typeof side?.title === 'string' && side.title.trim().length ? side.title : `Side ${idx + 1}`,
+        ingredients: Array.isArray(side?.ingredients) ? side.ingredients : [],
+        steps: Array.isArray(side?.steps) ? side.steps.map((s: any) => String(s).trim()).filter(Boolean) : parseInstructionSteps(side?.steps),
+      }))
+      .filter((side) => side.title || side.ingredients.length || side.steps.length);
+  }
+
+  const titles = splitSideSections(source?.sides_titles ?? source?.sidesTitles);
+  const ingredientsBlocks = splitSideSections(source?.sides_ingredients_per_serving ?? source?.sidesIngredientsPerServing);
+  const stepsBlocks = splitSideSections(source?.sides_steps ?? source?.sidesSteps);
+  const max = Math.max(titles.length, ingredientsBlocks.length, stepsBlocks.length);
+  const sides: SideItem[] = [];
+
+  for (let i = 0; i < max; i += 1) {
+    const titleCandidate = titles[i] ?? (max > 1 ? `Side ${i + 1}` : titles[0] ?? '');
+    const title = titleCandidate?.trim() || `Side ${i + 1}`;
+    const ingredients = parseIngredientString(ingredientsBlocks[i]);
+    const steps = parseInstructionSteps(stepsBlocks[i]);
+
+    if (title || ingredients.length || steps.length) {
+      sides.push({
+        title,
+        ingredients,
+        steps,
+      });
+    }
+  }
+
+  return sides;
 }
 
 
@@ -1170,6 +1261,10 @@ function mergeCartLines(lines: CartLine[]): CartLine[] {
 
 function getMenuInstructions(menu: MenuItem): string[] {
 
+  const parsedFromRecipe = parseInstructionSteps((menu as any)?.recipe_steps ?? (menu as any)?.recipeSteps);
+
+  if (parsedFromRecipe.length) return parsedFromRecipe;
+
   if (Array.isArray(menu.instructions) && menu.instructions.length) {
 
     return menu.instructions;
@@ -1179,10 +1274,6 @@ function getMenuInstructions(menu: MenuItem): string[] {
   const parsedFromField = parseInstructionSteps((menu as any)?.instructions);
 
   if (parsedFromField.length) return parsedFromField;
-
-  const parsedFromRecipe = parseInstructionSteps((menu as any)?.recipe_steps ?? (menu as any)?.recipeSteps);
-
-  if (parsedFromRecipe.length) return parsedFromRecipe;
 
   return [
 
@@ -1322,6 +1413,8 @@ function normalizeMenu(m: any, defaultPortions: number): MenuItem {
 
   const stepsFromRecipe = parseInstructionSteps(m?.recipe_steps ?? m?.recipeSteps);
 
+  const sides = buildSidesFromRaw(m);
+
   const instructions = stepsFromInstructions.length
 
     ? stepsFromInstructions
@@ -1363,6 +1456,8 @@ function normalizeMenu(m: any, defaultPortions: number): MenuItem {
       ? m.recipeSteps
 
       : undefined,
+
+    sides: sides.length ? sides : undefined,
 
   };
 
@@ -5186,229 +5281,217 @@ export default function DashboardPage() {
 
 function MenuDetailModal({ menu, onClose }: { menu: MenuItem; onClose: () => void }) {
 
-
-
   const scaled = scaleIngredients(menu.ingredients ?? [], menu.portions ?? 2);
-
-
 
   const instructions = getMenuInstructions(menu);
 
+  const scaledSides = (menu.sides ?? []).map((side, idx) => ({
 
+    ...side,
 
+    title: side?.title?.trim() || `Side ${idx + 1}`,
 
+    ingredients: scaleIngredients(side?.ingredients ?? [], menu.portions ?? 2),
+
+    steps: Array.isArray(side?.steps) ? side.steps : [],
+
+  }));
 
 
 
   return (
 
-
-
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-4 py-6" onClick={onClose}>
-
-
 
       <div className="relative max-w-3xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
 
-
-
         <button
-
-
 
           type="button"
 
-
-
           className="absolute top-4 right-4 h-10 w-10 rounded-full bg-black/70 text-white text-lg"
-
-
 
           onClick={onClose}
 
-
-
           aria-label="Close recipe dialog"
-
-
 
         >
 
-
-
           ×
-
-
 
         </button>
 
 
 
-
-
-
-
         <div className="h-64 w-full bg-gray-100">
-
-
 
           <img src={menu.hero} alt={menu.title} className="w-full h-full object-cover" />
 
-
-
         </div>
-
-
-
-
 
 
 
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
 
-
-
           <div>
-
-
 
             <h2 className="text-2xl font-bold">{menu.title}</h2>
 
-
-
             <p className="text-gray-600 mt-1">{menu.description}</p>
 
-
-
           </div>
-
-
-
-
 
 
 
           <div className="grid md:grid-cols-2 gap-6">
 
-
-
             <div>
-
-
 
               <h3 className="text-lg font-semibold mb-2">Ingredients</h3>
 
-
-
               {scaled.length ? (
-
-
 
                 <ul className="space-y-1 text-sm">
 
-
-
                   {scaled.map((ing, idx) => (
-
-
 
                     <li key={`${ing.name}-${idx}`} className="flex items-center justify-between border-b py-1">
 
-
-
                       <span>{ing.name}</span>
-
-
 
                       <span className="text-gray-500">{ing.qty} {ing.measure}</span>
 
-
-
                     </li>
-
-
 
                   ))}
 
-
-
                 </ul>
-
-
 
               ) : (
 
-
-
                 <p className="text-sm text-gray-500">No ingredients listed for this menu.</p>
-
-
 
               )}
 
-
-
             </div>
-
-
-
-
 
 
 
             <div>
 
-
-
               <h3 className="text-lg font-semibold mb-2">Instructions</h3>
-
-
 
               <ol className="text-sm space-y-2 list-decimal list-inside">
 
-
-
                 {instructions.map((step, idx) => (
-
-
 
                   <li key={idx}>{step}</li>
 
-
-
                 ))}
-
-
 
               </ol>
 
-
-
             </div>
-
-
 
           </div>
 
 
 
+          {scaledSides.length > 0 && (
+
+            <div className="space-y-4 pt-2">
+
+              <h3 className="text-lg font-semibold">Sides</h3>
+
+              {scaledSides.map((side, idx) => (
+
+                <div key={`${side.title}-${idx}`} className="border rounded-2xl p-4 space-y-4">
+
+                  <div>
+
+                    <h4 className="font-semibold text-base">{side.title || `Side ${idx + 1}`}</h4>
+
+                    <p className="text-sm text-gray-500">{`Serves ${menu.portions ?? 2}`}</p>
+
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+
+                    <div>
+
+                      <h5 className="text-sm font-semibold mb-1">Ingredients</h5>
+
+                      {side.ingredients.length ? (
+
+                        <ul className="text-sm space-y-1">
+
+                          {side.ingredients.map((ing, ingIdx) => (
+
+                            <li key={`${side.title}-${ing.name}-${ingIdx}`} className="flex items-center justify-between border-b py-1">
+
+                              <span>{ing.name}</span>
+
+                              <span className="text-gray-500">{ing.qty} {ing.measure}</span>
+
+                            </li>
+
+                          ))}
+
+                        </ul>
+
+                      ) : (
+
+                        <p className="text-xs text-gray-500">No ingredients listed.</p>
+
+                      )}
+
+                    </div>
+
+                    <div>
+
+                      <h5 className="text-sm font-semibold mb-1">Steps</h5>
+
+                      {side.steps.length ? (
+
+                        <ol className="text-sm space-y-1 list-decimal list-inside">
+
+                          {side.steps.map((step, stepIdx) => (
+
+                            <li key={`${side.title}-step-${stepIdx}`}>{step}</li>
+
+                          ))}
+
+                        </ol>
+
+                      ) : (
+
+                        <p className="text-xs text-gray-500">No steps included.</p>
+
+                      )}
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              ))}
+
+            </div>
+
+          )}
+
         </div>
-
-
 
       </div>
 
-
-
     </div>
-
-
 
   );
 
-
-
 }
+
+
 
 
 

@@ -106,6 +106,48 @@ function parseSteps(raw?: unknown): string[] {
 
 
 
+function splitSideSections(raw?: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.map(entry => String(entry).trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    if (raw.includes('||')) {
+      return raw.split('||').map(part => part.trim()).filter(Boolean);
+    }
+    if (raw.includes('\n\n')) {
+      return raw.split(/\n{2,}/).map(part => part.trim()).filter(Boolean);
+    }
+    return [raw.trim()];
+  }
+  return [];
+}
+
+function parseSides(raw: any): Side[] {
+  if (Array.isArray(raw?.sides) && raw.sides.length) {
+    return raw.sides as Side[];
+  }
+  const titles = splitSideSections(raw?.sides_titles ?? raw?.sidesTitles);
+  const ingredientBlocks = splitSideSections(raw?.sides_ingredients_per_serving ?? raw?.sidesIngredientsPerServing);
+  const stepBlocks = splitSideSections(raw?.sides_steps ?? raw?.sidesSteps);
+  const max = Math.max(titles.length, ingredientBlocks.length, stepBlocks.length);
+  const sides: Side[] = [];
+  for (let i = 0; i < max; i += 1) {
+    const titleCandidate = titles[i] ?? (max > 1 ? `Side ${i + 1}` : titles[0] ?? '');
+    const title = titleCandidate?.trim() || `Side ${i + 1}`;
+    const ingredients = parseIngredients(ingredientBlocks[i]);
+    const steps = parseSteps(stepBlocks[i]);
+    if (title || ingredients.length || steps.length) {
+      sides.push({
+        title,
+        ingredients,
+        steps,
+      });
+    }
+  }
+  return sides;
+}
+
 // Accepts either "normalized" or "n8n results_rows" shape and returns MenuItem
 
 function normalizeOne(raw: any): MenuItem {
@@ -135,6 +177,8 @@ function normalizeOne(raw: any): MenuItem {
         ? raw.recipeSteps
 
         : null,
+
+      sides: parseSides(raw),
 
       _source: raw,
 
@@ -171,6 +215,8 @@ function normalizeOne(raw: any): MenuItem {
     instructions: parseSteps(recipeSteps ?? raw?.instructions),
 
     recipe_steps: typeof recipeSteps === 'string' ? recipeSteps : null,
+
+    sides: parseSides(raw),
 
     _source: raw,
 

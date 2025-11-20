@@ -18,6 +18,13 @@ export type MenuItem = Portionable & {
   approved: boolean
   feedback?: string
   ingredients: Ingredient[]
+  instructions?: string[]
+  recipe_steps?: string | null
+  sides?: {
+    title: string
+    ingredients: Ingredient[]
+    steps: string[]
+  }[]
 }
 
 export type PantryItem = {
